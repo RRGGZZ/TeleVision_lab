@@ -42,6 +42,13 @@ This code contains implementation for teleoperation and imitation learning of Op
     cd act/detr && pip install -e .
 ```
 
+**For Python 3.11+ environments** (like `television_lab`):
+
+See [SETUP_PYTHON311.md](SETUP_PYTHON311.md) for complete setup instructions. Key differences:
+- `dex-retargeting` installed from GitHub (0.5.0 supports Python 3.11+)
+- numpy constrained to `<2.0` for Isaac Lab compatibility
+- Quick setup: `bash install_deps.sh`
+
 Install ZED sdk: https://www.stereolabs.com/developers/release/
 
 Install ZED Python API:
@@ -49,9 +56,9 @@ Install ZED Python API:
     cd /usr/local/zed/ && python get_python_api.py
 ```
 
-If you want to try teleoperation example in a simulated environment (teleop_hand.py):
+If you want to run simulation teleoperation, replay, and policy deployment in Isaac Lab:
 
-Install Isaac Gym: https://developer.nvidia.com/isaac-gym/
+Install Isaac Lab first, and make sure your task environment is registered (for this repo: `television_lab`).
 
 ## Teleoperation Guide
 
@@ -118,24 +125,68 @@ ps. When using ngrok for network streaming, remember to call `OpenTeleVision` wi
     self.tv = OpenTeleVision(self.resolution_cropped, self.shm.name, image_queue, toggle_streaming, ngrok=True)
 ```
 
-### Simulation Teleoperation Example
-1. After setup up streaming with either local or network streaming following the above instructions, you can try teleoperating two robot hands in Issac Gym:
-```
-    cd teleop && python teleop_hand.py
-```
-2. Go to your vuer site on VisionPro, click `Enter VR` and ``Allow`` to enter immersive environment.
+### Isaac Lab Teleoperation Example
 
-3. See your hands in 3D!
-<img src=img/sim.png>
+**1. Verify Isaac Lab Installation**
+
+Run integration tests to verify migration:
+```
+    cd scripts && python test_integration.py
+```
+
+Expected output: `🎉 All tests passed! Isaac Lab migration is successful.`
+
+**2. Get Environment Schema**
+
+```
+    python ../scripts/quick_probe.py
+```
+
+This shows:
+- Action space: Box(-1.0, 1.0, (38,), float32)
+- Observation keys: observation.image.{left,right}, observation.state
+- Image dimensions: 512x512 RGB
+- State dimension: 38D
+
+**3. Record Episodes with VisionPro**
+
+After setting up streaming with either local or network streaming, record teleoperation episodes:
+
+```
+    cd teleop && python teleop_hand.py --task television_lab --record --output ../data/recordings/isaaclab/processed_episode_0.hdf5
+```
+
+Alternatively, batch collect multiple episodes:
+
+```
+    cd scripts && python collect_episodes.py --num_episodes 5 --task television_lab --output_dir ../data/recordings/isaaclab
+```
+
+**4. Replay Episodes**
+
+Verify collected episodes by replaying them in the environment:
+
+```
+    cd scripts && python replay_demo.py --task television_lab --episode_path ../data/recordings/isaaclab/processed_episode_0.hdf5
+```
+
+If your environment uses different observation key names, pass key paths explicitly:
+
+```
+    cd teleop && python teleop_hand.py --task television_lab \
+      --left_image_keys observation.image.left --right_image_keys observation.image.right --state_keys observation.state
+```
+
+For more detailed testing and troubleshooting, see [TESTING.md](TESTING.md).
 
 ## Training Guide
-1. Download dataset from https://drive.google.com/drive/folders/11WO96mUMjmxRo9Hpvm4ADz7THuuGNEMY?usp=sharing.
+1. Collect or download dataset. See "Record Episodes with VisionPro" above or download from https://drive.google.com/drive/folders/11WO96mUMjmxRo9Hpvm4ADz7THuuGNEMY?usp=sharing.
 
-2. Place the downloaded dataset in ``data/recordings/``.
+2. Place the collected dataset in ``data/recordings/isaaclab/``.
 
-3. Process the specified dataset for training using ``scripts/post_process.py``.
+3. Process the specified dataset for training using ``scripts/post_process.py`` (if needed).
 
-4. You can verify the image and action sequences of a specific episode in the dataset using ``scripts/replay_demo.py``.
+4. You can verify the image and action sequences of a specific episode in Isaac Lab using ``scripts/replay_demo.py`` (see above).
 
 5. To train ACT, run:
 ```
@@ -148,9 +199,9 @@ ps. When using ngrok for network streaming, remember to call `OpenTeleVision` wi
                                --save_jit --resume_ckpt 25000
 ```
 
-7. You can visualize the trained policy with inputs from dataset using ``scripts/deploy_sim.py``, example usage:
+7. You can visualize the trained policy in Isaac Lab with inputs from dataset using ``scripts/deploy_sim.py``, example usage:
 ```
-    python deploy_sim.py --taskid 00 --exptid 01 --resume_ckpt 25000
+    cd scripts && python deploy_sim.py --task television_lab --taskid 00 --exptid 01 --resume_ckpt 25000
 ```
 
 ## Citation
@@ -162,3 +213,4 @@ journal={arXiv preprint arXiv:2407.01512},
 year={2024}
 }
 ```
+# TeleVision_lab

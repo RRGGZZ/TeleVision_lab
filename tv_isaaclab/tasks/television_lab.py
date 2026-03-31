@@ -96,9 +96,17 @@ class TelevisionLabEnv(gym.Env):
         except Exception:
             return
 
+        try:
+            from isaaclab_tasks.utils import parse_env_cfg
+        except ImportError:
+            print("[!] Could not import parse_env_cfg from isaaclab_tasks")
+            return
+
         task = os.getenv("TELEVISION_LAB_BASE_TASK", self.cfg.base_task_id)
         try:
-            env = gym.make(task, render_mode="rgb_array")
+            env_cfg = parse_env_cfg(task, device="cuda:0", num_envs=1)
+            os.environ.setdefault("ENABLE_CAMERAS", "1")
+            env = gym.make(task, cfg=env_cfg, render_mode="rgb_array")
             raw_obs, _ = env.reset()
             self.base_env = env
             self.base_task = task

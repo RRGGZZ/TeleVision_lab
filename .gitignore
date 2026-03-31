@@ -12,3 +12,7 @@ __MACOSX/
 *.svo
 *.png
 .vscode/
+
+# Local recording artifacts
+data/recordings/
+*.hdf5

@@ -10,10 +10,11 @@ def _try_import_isaaclab_tasks():
     # Try custom television_lab first
     try:
         import tv_isaaclab.tasks  # noqa: F401
+
         return
     except Exception:
         pass
-    
+
     # Try standard Isaac Lab tasks
     for module_name in ("isaaclab_tasks", "omni.isaac.lab_tasks"):
         try:
@@ -58,7 +59,11 @@ def _to_hwc_uint8(img: Optional[np.ndarray]) -> Optional[np.ndarray]:
     array = np.asarray(img)
     if array.ndim == 4:
         array = array[0]
-    if array.ndim == 3 and array.shape[0] in (1, 3, 4) and array.shape[2] not in (1, 3, 4):
+    if (
+        array.ndim == 3
+        and array.shape[0] in (1, 3, 4)
+        and array.shape[2] not in (1, 3, 4)
+    ):
         array = np.transpose(array, (1, 2, 0))
     if array.ndim == 2:
         array = np.repeat(array[..., None], 3, axis=2)
@@ -89,25 +94,43 @@ class IsaacLabEnvBridge:
         import gymnasium as gym
 
         _try_import_isaaclab_tasks()
-        self.env = gym.make(task, render_mode=render_mode)
-        self.left_image_keys = list(left_image_keys or [
-            "observation.image.left",  # television_lab
-            "policy.left_rgb",
-            "left_rgb",
-            "images.left",
-        ])
-        self.right_image_keys = list(right_image_keys or [
-            "observation.image.right",  # television_lab
-            "policy.right_rgb",
-            "right_rgb",
-            "images.right",
-        ])
-        self.state_keys = list(state_keys or [
-            "observation.state",  # television_lab
-            "policy.state",
-            "state",
-            "policy",
-        ])
+
+        try:
+            from isaaclab_tasks.utils import parse_env_cfg
+
+            env_cfg = parse_env_cfg(task, device="cuda:0", num_envs=1)
+            os.environ.setdefault("ENABLE_CAMERAS", "1")
+            self.env = gym.make(task, cfg=env_cfg, render_mode=render_mode)
+        except Exception:
+            self.env = gym.make(task, render_mode=render_mode)
+
+        self.left_image_keys = list(
+            left_image_keys
+            or [
+                "observation.image.left",  # television_lab
+                "policy.left_rgb",
+                "left_rgb",
+                "images.left",
+            ]
+        )
+        self.right_image_keys = list(
+            right_image_keys
+            or [
+                "observation.image.right",  # television_lab
+                "policy.right_rgb",
+                "right_rgb",
+                "images.right",
+            ]
+        )
+        self.state_keys = list(
+            state_keys
+            or [
+                "observation.state",  # television_lab
+                "policy.state",
+                "state",
+                "policy",
+            ]
+        )
 
     @property
     def action_dim(self) -> int:
@@ -132,7 +155,9 @@ class IsaacLabEnvBridge:
     def close(self):
         self.env.close()
 
-    def _find_by_keys(self, obs: Any, key_candidates: Iterable[str]) -> Optional[np.ndarray]:
+    def _find_by_keys(
+        self, obs: Any, key_candidates: Iterable[str]
+    ) -> Optional[np.ndarray]:
         for key in key_candidates:
             value = _resolve_key_path(obs, key)
             array = _as_numpy(value)
@@ -149,7 +174,9 @@ class IsaacLabEnvBridge:
             rendered = self.env.render()
             rendered = _to_hwc_uint8(_as_numpy(rendered))
             if rendered is None:
-                raise RuntimeError("Cannot extract RGB images from observations or env.render().")
+                raise RuntimeError(
+                    "Cannot extract RGB images from observations or env.render()."
+                )
             half_w = rendered.shape[1] // 2
             left_rgb = rendered[:, :half_w]
             right_rgb = rendered[:, half_w:]

@@ -1,28 +1,22 @@
-from isaacgym import gymapi
-from isaacgym import gymutil
-
-import math
 import numpy as np
-import matplotlib.pyplot as plt
-
 from replay_demo import Player
 
 from pathlib import Path
 import h5py
 from tqdm import tqdm
-import time
-import yaml
 import pickle
 import torch
-import cv2
 from collections import deque
 import argparse
 import sys
-sys.path.append("../")
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
 from act.utils import parse_id
+from tv_isaaclab import add_app_launcher_args, launch_simulation_app
 # from act.imitate_episodes import RECORD_DIR, DATA_DIR, LOG_DIR
 
-from pathlib import Path
 current_dir = Path(__file__).parent.resolve()
 DATA_DIR = (current_dir.parent / 'data/').resolve()
 RECORD_DIR = (DATA_DIR / 'recordings/').resolve()
@@ -71,11 +65,18 @@ def merge_act(actions_for_curr_step, k = 0.01):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Set transformer detector', add_help=False)
+    parser = argparse.ArgumentParser('Deploy ACT policy in Isaac Lab', add_help=False)
     parser.add_argument('--taskid', action='store', type=str, help='task id', required=True)
     parser.add_argument('--exptid', action='store', type=str, help='experiment id', required=True)
     parser.add_argument('--resume_ckpt', action='store', type=str, help='resume checkpoint', required=True)
+    parser.add_argument('--task', type=str, default='television_lab', help='Isaac Lab task name')
+    parser.add_argument('--left_image_keys', type=str, default='')
+    parser.add_argument('--right_image_keys', type=str, default='')
+    parser.add_argument('--state_keys', type=str, default='')
+    add_app_launcher_args(parser)
     args = vars(parser.parse_args())
+
+    simulation_app = launch_simulation_app(argparse.Namespace(**args))
 
     episode_name = "processed_episode_0.hdf5"
     task_dir, task_name = parse_id(RECORD_DIR, args['taskid'])
@@ -113,7 +114,16 @@ if __name__ == '__main__':
     else:
         last_action_queue = None
         last_action_data = None
-    player = Player(dt=1/30)
+
+    def parse_keys(raw):
+        return [x.strip() for x in raw.split(",") if x.strip()] if raw else None
+
+    player = Player(
+        task=args['task'],
+        left_image_keys=parse_keys(args['left_image_keys']),
+        right_image_keys=parse_keys(args['right_image_keys']),
+        state_keys=parse_keys(args['state_keys']),
+    )
 
     if temporal_agg:
         all_time_actions = np.zeros([timestamps, timestamps+chunk_size, action_dim])
@@ -124,6 +134,8 @@ if __name__ == '__main__':
         output = None
         act_index = 0
         for t in tqdm(range(timestamps)):
+            if not simulation_app.is_running():
+                break
             if history_stack > 0:
                 last_action_data = np.array(last_action_queue)
 
@@ -146,5 +158,7 @@ if __name__ == '__main__':
             act = act * norm_stats["action_std"] + norm_stats["action_mean"]
             player.step(act, left_imgs[t], right_imgs[t])
     except KeyboardInterrupt:
+        pass
+    finally:
         player.end()
-        exit()
+        simulation_app.close()

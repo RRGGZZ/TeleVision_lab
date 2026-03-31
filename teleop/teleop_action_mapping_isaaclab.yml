@@ -1,0 +1,16 @@
+# Default mapping keeps legacy teleop_hand semantics:
+# action = [left_pose(7), right_pose(7), left_qpos(12), right_qpos(12)] -> dim 38
+action_dim: 38
+mapping:
+  - source: left_pose
+    src: [0, 7]
+    dst: [0, 7]
+  - source: right_pose
+    src: [0, 7]
+    dst: [7, 14]
+  - source: left_qpos
+    src: [0, 12]
+    dst: [14, 26]
+  - source: right_qpos
+    src: [0, 12]
+    dst: [26, 38]

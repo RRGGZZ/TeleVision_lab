@@ -4,7 +4,14 @@ left:
   wrist_link_name: "L_hand_base_link"
 
   # Target refers to the retargeting target, which is the robot hand
-  target_joint_names: null
+  # Explicitly use non-mimic driver joints for dex-retargeting>=0.5.0
+  target_joint_names:
+    - L_index_proximal_joint
+    - L_middle_proximal_joint
+    - L_pinky_proximal_joint
+    - L_ring_proximal_joint
+    - L_thumb_proximal_yaw_joint
+    - L_thumb_proximal_pitch_joint
   target_origin_link_names: [ "L_hand_base_link", "L_hand_base_link", "L_hand_base_link", "L_hand_base_link", "L_hand_base_link" ]
   target_task_link_names: [ "L_thumb_tip", "L_index_tip", "L_middle_tip", "L_ring_tip", "L_pinky_tip" ]
   scaling_factor: 1.1
@@ -22,7 +29,14 @@ right:
   wrist_link_name: "R_hand_base_link"
 
   # Target refers to the retargeting target, which is the robot hand
-  target_joint_names: null
+  # Explicitly use non-mimic driver joints for dex-retargeting>=0.5.0
+  target_joint_names:
+    - R_index_proximal_joint
+    - R_middle_proximal_joint
+    - R_pinky_proximal_joint
+    - R_ring_proximal_joint
+    - R_thumb_proximal_yaw_joint
+    - R_thumb_proximal_pitch_joint
   target_origin_link_names: [ "R_hand_base_link", "R_hand_base_link", "R_hand_base_link", "R_hand_base_link", "R_hand_base_link" ]
   target_task_link_names: [ "R_thumb_tip", "R_index_tip", "R_middle_tip", "R_ring_tip", "R_pinky_tip" ]
   scaling_factor: 1.1

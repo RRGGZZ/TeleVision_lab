@@ -1,10 +1,11 @@
-from isaacgym import gymapi
-from isaacgym import gymutil
-from isaacgym import gymtorch
-
-import math
 import numpy as np
-import torch
+import cv2
+import sys
+from pathlib import Path
+
+# Add teleop directory to path for local imports
+TELEOP_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(TELEOP_DIR))
 
 from TeleVision import OpenTeleVision
 from Preprocessor import VuerPreprocessor
@@ -12,27 +13,53 @@ from constants_vuer import tip_indices
 from dex_retargeting.retargeting_config import RetargetingConfig
 from pytransform3d import rotations
 
-from pathlib import Path
 import argparse
 import time
 import yaml
-from multiprocessing import Array, Process, shared_memory, Queue, Manager, Event, Semaphore
+from multiprocessing import shared_memory, Queue, Event
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
+from tv_isaaclab import (  # noqa: E402
+    add_app_launcher_args,
+    launch_simulation_app,
+    IsaacLabEnvBridge,
+    EpisodeRecorder,
+)
 
 class VuerTeleop:
-    def __init__(self, config_file_path):
+    def __init__(self, config_file_path, ngrok=False, vuer_port=8012):
         self.resolution = (720, 1280)
         self.crop_size_w = 0
         self.crop_size_h = 0
-        self.resolution_cropped = (self.resolution[0]-self.crop_size_h, self.resolution[1]-2*self.crop_size_w)
+        self.resolution_cropped = (
+            self.resolution[0] - self.crop_size_h,
+            self.resolution[1] - 2 * self.crop_size_w,
+        )
 
         self.img_shape = (self.resolution_cropped[0], 2 * self.resolution_cropped[1], 3)
         self.img_height, self.img_width = self.resolution_cropped[:2]
 
         self.shm = shared_memory.SharedMemory(create=True, size=np.prod(self.img_shape) * np.uint8().itemsize)
-        self.img_array = np.ndarray((self.img_shape[0], self.img_shape[1], 3), dtype=np.uint8, buffer=self.shm.buf)
+        self.img_array = np.ndarray(
+            (self.img_shape[0], self.img_shape[1], 3),
+            dtype=np.uint8,
+            buffer=self.shm.buf,
+        )
+        # Set a visible startup frame before the first simulation image arrives.
+        self.img_array[:] = 32
         image_queue = Queue()
         toggle_streaming = Event()
-        self.tv = OpenTeleVision(self.resolution_cropped, self.shm.name, image_queue, toggle_streaming)
+        self.tv = OpenTeleVision(
+            self.resolution_cropped,
+            self.shm.name,
+            image_queue,
+            toggle_streaming,
+            ngrok=ngrok,
+            vuer_port=vuer_port,
+        )
         self.processor = VuerPreprocessor()
 
         RetargetingConfig.set_default_urdf_dir('../assets')
@@ -43,6 +70,35 @@ class VuerTeleop:
         self.left_retargeting = left_retargeting_config.build()
         self.right_retargeting = right_retargeting_config.build()
 
+    @staticmethod
+    def _expand_inspire_qpos(qpos):
+        """Expand 6-dim driver joints into legacy 12-dim hand command layout."""
+        q = np.asarray(qpos, dtype=np.float32).reshape(-1)
+        if q.shape[0] == 12:
+            return q
+        if q.shape[0] != 6:
+            raise ValueError(f"Unexpected retarget qpos dim: {q.shape[0]} (expected 6 or 12)")
+
+        index_prox, middle_prox, pinky_prox, ring_prox, thumb_yaw, thumb_pitch = q.tolist()
+        # Layout matches previous 12-joint order used by action mapping.
+        return np.array(
+            [
+                index_prox,
+                index_prox,
+                middle_prox,
+                middle_prox,
+                pinky_prox,
+                pinky_prox,
+                ring_prox,
+                ring_prox,
+                thumb_yaw,
+                thumb_pitch,
+                1.6 * thumb_pitch,
+                2.4 * thumb_pitch,
+            ],
+            dtype=np.float32,
+        )
+
     def step(self):
         head_mat, left_wrist_mat, right_wrist_mat, left_hand_mat, right_hand_mat = self.processor.process(self.tv)
 
@@ -52,214 +108,154 @@ class VuerTeleop:
                                     rotations.quaternion_from_matrix(left_wrist_mat[:3, :3])[[1, 2, 3, 0]]])
         right_pose = np.concatenate([right_wrist_mat[:3, 3] + np.array([-0.6, 0, 1.6]),
                                      rotations.quaternion_from_matrix(right_wrist_mat[:3, :3])[[1, 2, 3, 0]]])
-        left_qpos = self.left_retargeting.retarget(left_hand_mat[tip_indices])[[4, 5, 6, 7, 10, 11, 8, 9, 0, 1, 2, 3]]
-        right_qpos = self.right_retargeting.retarget(right_hand_mat[tip_indices])[[4, 5, 6, 7, 10, 11, 8, 9, 0, 1, 2, 3]]
+        left_qpos = self._expand_inspire_qpos(
+            self.left_retargeting.retarget(left_hand_mat[tip_indices])
+        )
+        right_qpos = self._expand_inspire_qpos(
+            self.right_retargeting.retarget(right_hand_mat[tip_indices])
+        )
 
         return head_rmat, left_pose, right_pose, left_qpos, right_qpos
 
-class Sim:
-    def __init__(self,
-                 print_freq=False):
-        self.print_freq = print_freq
+class ActionMapper:
+    def __init__(self, config_path):
+        with Path(config_path).open("r") as f:
+            cfg = yaml.safe_load(f)
+        self.action_dim = int(cfg["action_dim"])
+        self.mapping = cfg["mapping"]
 
-        # initialize gym
-        self.gym = gymapi.acquire_gym()
+    def assemble(self, left_pose, right_pose, left_qpos, right_qpos):
+        sources = {
+            "left_pose": np.asarray(left_pose, dtype=np.float32),
+            "right_pose": np.asarray(right_pose, dtype=np.float32),
+            "left_qpos": np.asarray(left_qpos, dtype=np.float32),
+            "right_qpos": np.asarray(right_qpos, dtype=np.float32),
+        }
+        action = np.zeros(self.action_dim, dtype=np.float32)
+        for item in self.mapping:
+            src_name = item["source"]
+            src_start, src_end = item["src"]
+            dst_start, dst_end = item["dst"]
+            action[dst_start:dst_end] = sources[src_name][src_start:src_end]
+        return action
 
-        # configure sim
-        sim_params = gymapi.SimParams()
-        sim_params.dt = 1 / 60
-        sim_params.substeps = 2
-        sim_params.up_axis = gymapi.UP_AXIS_Z
-        sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.81)
-        sim_params.physx.solver_type = 1
-        sim_params.physx.num_position_iterations = 4
-        sim_params.physx.num_velocity_iterations = 1
-        sim_params.physx.max_gpu_contact_pairs = 8388608
-        sim_params.physx.contact_offset = 0.002
-        sim_params.physx.friction_offset_threshold = 0.001
-        sim_params.physx.friction_correlation_distance = 0.0005
-        sim_params.physx.rest_offset = 0.0
-        sim_params.physx.use_gpu = True
-        sim_params.use_gpu_pipeline = False
 
-        self.sim = self.gym.create_sim(0, 0, gymapi.SIM_PHYSX, sim_params)
-        if self.sim is None:
-            print("*** Failed to create sim")
-            quit()
+def _parse_keys(key_str):
+    if not key_str:
+        return None
+    return [x.strip() for x in key_str.split(",") if x.strip()]
 
-        plane_params = gymapi.PlaneParams()
-        plane_params.distance = 0.0
-        plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0)
-        self.gym.add_ground(self.sim, plane_params)
 
-        # load table asset
-        table_asset_options = gymapi.AssetOptions()
-        table_asset_options.disable_gravity = True
-        table_asset_options.fix_base_link = True
-        table_asset = self.gym.create_box(self.sim, 0.8, 0.8, 0.1, table_asset_options)
+def _resize_pair(left_img, right_img, height, width):
+    left_resized = cv2.resize(
+        left_img,
+        (width, height),
+        interpolation=cv2.INTER_LINEAR,
+    )
+    right_resized = cv2.resize(
+        right_img,
+        (width, height),
+        interpolation=cv2.INTER_LINEAR,
+    )
+    return left_resized, right_resized
 
-        # load cube asset
-        cube_asset_options = gymapi.AssetOptions()
-        cube_asset_options.density = 10
-        cube_asset = self.gym.create_box(self.sim, 0.05, 0.05, 0.05, cube_asset_options)
 
-        asset_root = "../assets"
-        left_asset_path = "inspire_hand/inspire_hand_left.urdf"
-        right_asset_path = "inspire_hand/inspire_hand_right.urdf"
-        asset_options = gymapi.AssetOptions()
-        asset_options.fix_base_link = True
-        asset_options.default_dof_drive_mode = gymapi.DOF_MODE_POS
-        left_asset = self.gym.load_asset(self.sim, asset_root, left_asset_path, asset_options)
-        right_asset = self.gym.load_asset(self.sim, asset_root, right_asset_path, asset_options)
-        self.dof = self.gym.get_asset_dof_count(left_asset)
-
-        # set up the env grid
-        num_envs = 1
-        num_per_row = int(math.sqrt(num_envs))
-        env_spacing = 1.25
-        env_lower = gymapi.Vec3(-env_spacing, 0.0, -env_spacing)
-        env_upper = gymapi.Vec3(env_spacing, env_spacing, env_spacing)
-        np.random.seed(0)
-        self.env = self.gym.create_env(self.sim, env_lower, env_upper, num_per_row)
-
-        # table
-        pose = gymapi.Transform()
-        pose.p = gymapi.Vec3(0, 0, 1.2)
-        pose.r = gymapi.Quat(0, 0, 0, 1)
-        table_handle = self.gym.create_actor(self.env, table_asset, pose, 'table', 0)
-        color = gymapi.Vec3(0.5, 0.5, 0.5)
-        self.gym.set_rigid_body_color(self.env, table_handle, 0, gymapi.MESH_VISUAL_AND_COLLISION, color)
-
-        # cube
-        pose = gymapi.Transform()
-        pose.p = gymapi.Vec3(0, 0, 1.25)
-        pose.r = gymapi.Quat(0, 0, 0, 1)
-        cube_handle = self.gym.create_actor(self.env, cube_asset, pose, 'cube', 0)
-        color = gymapi.Vec3(1, 0.5, 0.5)
-        self.gym.set_rigid_body_color(self.env, cube_handle, 0, gymapi.MESH_VISUAL_AND_COLLISION, color)
-
-        # left_hand
-        pose = gymapi.Transform()
-        pose.p = gymapi.Vec3(-0.6, 0, 1.6)
-        pose.r = gymapi.Quat(0, 0, 0, 1)
-        self.left_handle = self.gym.create_actor(self.env, left_asset, pose, 'left', 1, 1)
-        self.gym.set_actor_dof_states(self.env, self.left_handle, np.zeros(self.dof, gymapi.DofState.dtype),
-                                      gymapi.STATE_ALL)
-        left_idx = self.gym.get_actor_index(self.env, self.left_handle, gymapi.DOMAIN_SIM)
-
-        # right_hand
-        pose = gymapi.Transform()
-        pose.p = gymapi.Vec3(-0.6, 0, 1.6)
-        pose.r = gymapi.Quat(0, 0, 0, 1)
-        self.right_handle = self.gym.create_actor(self.env, right_asset, pose, 'right', 1, 1)
-        self.gym.set_actor_dof_states(self.env, self.right_handle, np.zeros(self.dof, gymapi.DofState.dtype),
-                                      gymapi.STATE_ALL)
-        right_idx = self.gym.get_actor_index(self.env, self.right_handle, gymapi.DOMAIN_SIM)
-
-        self.root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
-        self.gym.refresh_actor_root_state_tensor(self.sim)
-        self.root_states = gymtorch.wrap_tensor(self.root_state_tensor)
-        self.left_root_states = self.root_states[left_idx]
-        self.right_root_states = self.root_states[right_idx]
-
-        # create default viewer
-        self.viewer = self.gym.create_viewer(self.sim, gymapi.CameraProperties())
-        if self.viewer is None:
-            print("*** Failed to create viewer")
-            quit()
-        cam_pos = gymapi.Vec3(1, 1, 2)
-        cam_target = gymapi.Vec3(0, 0, 1)
-        self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
-
-        self.cam_lookat_offset = np.array([1, 0, 0])
-        self.left_cam_offset = np.array([0, 0.033, 0])
-        self.right_cam_offset = np.array([0, -0.033, 0])
-        self.cam_pos = np.array([-0.6, 0, 1.6])
-
-        # create left 1st preson viewer
-        camera_props = gymapi.CameraProperties()
-        camera_props.width = 1280
-        camera_props.height = 720
-        self.left_camera_handle = self.gym.create_camera_sensor(self.env, camera_props)
-        self.gym.set_camera_location(self.left_camera_handle,
-                                     self.env,
-                                     gymapi.Vec3(*(self.cam_pos + self.left_cam_offset)),
-                                     gymapi.Vec3(*(self.cam_pos + self.left_cam_offset + self.cam_lookat_offset)))
-
-        # create right 1st preson viewer
-        camera_props = gymapi.CameraProperties()
-        camera_props.width = 1280
-        camera_props.height = 720
-        self.right_camera_handle = self.gym.create_camera_sensor(self.env, camera_props)
-        self.gym.set_camera_location(self.right_camera_handle,
-                                     self.env,
-                                     gymapi.Vec3(*(self.cam_pos + self.right_cam_offset)),
-                                     gymapi.Vec3(*(self.cam_pos + self.right_cam_offset + self.cam_lookat_offset)))
-
-    def step(self, head_rmat, left_pose, right_pose, left_qpos, right_qpos):
-
-        if self.print_freq:
-            start = time.time()
-
-        self.left_root_states[0:7] = torch.tensor(left_pose, dtype=float)
-        self.right_root_states[0:7] = torch.tensor(right_pose, dtype=float)
-        self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
-
-        left_states = np.zeros(self.dof, dtype=gymapi.DofState.dtype)
-        left_states['pos'] = left_qpos
-        self.gym.set_actor_dof_states(self.env, self.left_handle, left_states, gymapi.STATE_POS)
-
-        right_states = np.zeros(self.dof, dtype=gymapi.DofState.dtype)
-        right_states['pos'] = right_qpos
-        self.gym.set_actor_dof_states(self.env, self.right_handle, right_states, gymapi.STATE_POS)
-
-        # step the physics
-        self.gym.simulate(self.sim)
-        self.gym.fetch_results(self.sim, True)
-        self.gym.step_graphics(self.sim)
-        self.gym.render_all_camera_sensors(self.sim)
-        self.gym.refresh_actor_root_state_tensor(self.sim)
-
-        curr_lookat_offset = self.cam_lookat_offset @ head_rmat.T
-        curr_left_offset = self.left_cam_offset @ head_rmat.T
-        curr_right_offset = self.right_cam_offset @ head_rmat.T
-
-        self.gym.set_camera_location(self.left_camera_handle,
-                                     self.env,
-                                     gymapi.Vec3(*(self.cam_pos + curr_left_offset)),
-                                     gymapi.Vec3(*(self.cam_pos + curr_left_offset + curr_lookat_offset)))
-        self.gym.set_camera_location(self.right_camera_handle,
-                                     self.env,
-                                     gymapi.Vec3(*(self.cam_pos + curr_right_offset)),
-                                     gymapi.Vec3(*(self.cam_pos + curr_right_offset + curr_lookat_offset)))
-        left_image = self.gym.get_camera_image(self.sim, self.env, self.left_camera_handle, gymapi.IMAGE_COLOR)
-        right_image = self.gym.get_camera_image(self.sim, self.env, self.right_camera_handle, gymapi.IMAGE_COLOR)
-        left_image = left_image.reshape(left_image.shape[0], -1, 4)[..., :3]
-        right_image = right_image.reshape(right_image.shape[0], -1, 4)[..., :3]
-
-        self.gym.draw_viewer(self.viewer, self.sim, True)
-        self.gym.sync_frame_time(self.sim)
-
-        if self.print_freq:
-            end = time.time()
-            print('Frequency:', 1 / (end - start))
-
-        return left_image, right_image
-
-    def end(self):
-        self.gym.destroy_viewer(self.viewer)
-        self.gym.destroy_sim(self.sim)
+def _fit_action_dim(action, expected_dim):
+    if action.shape[0] == expected_dim:
+        return action
+    resized = np.zeros(expected_dim, dtype=np.float32)
+    copy_n = min(expected_dim, action.shape[0])
+    resized[:copy_n] = action[:copy_n]
+    return resized
 
 
 if __name__ == '__main__':
-    teleoperator = VuerTeleop('inspire_hand.yml')
-    simulator = Sim()
+    parser = argparse.ArgumentParser(description="VisionPro teleoperation on Isaac Lab")
+    parser.add_argument("--task", type=str, default="television_lab", help="Isaac Lab task name")
+    parser.add_argument("--retarget_config", type=str, default="inspire_hand.yml", help="Retargeting config")
+    parser.add_argument(
+        "--action_mapping",
+        type=str,
+        default="teleop_action_mapping_isaaclab.yml",
+        help="YAML file defining teleop command to env action mapping",
+    )
+    parser.add_argument("--record", action="store_true", help="Record episode to HDF5")
+    parser.add_argument("--output", type=str, default="../data/recordings/isaaclab/processed_episode_0.hdf5")
+    parser.add_argument("--max_steps", type=int, default=0, help="0 means run forever")
+    parser.add_argument("--left_image_keys", type=str, default="")
+    parser.add_argument("--right_image_keys", type=str, default="")
+    parser.add_argument("--state_keys", type=str, default="")
+    parser.add_argument("--ngrok", action="store_true", help="Enable ngrok mode for Vuer server")
+    parser.add_argument("--vuer_port", type=int, default=8012, help="Port for Vuer websocket server")
+    parser.add_argument("--loop_hz", type=float, default=30.0, help="Main control/render loop frequency")
+    add_app_launcher_args(parser)
+    args = parser.parse_args()
 
+    simulation_app = launch_simulation_app(args)
+
+    teleoperator = VuerTeleop(
+        args.retarget_config,
+        ngrok=args.ngrok,
+        vuer_port=args.vuer_port,
+    )
+    mapper = ActionMapper(args.action_mapping)
     try:
-        while True:
-            head_rmat, left_pose, right_pose, left_qpos, right_qpos = teleoperator.step()
-            left_img, right_img = simulator.step(head_rmat, left_pose, right_pose, left_qpos, right_qpos)
+        env = IsaacLabEnvBridge(
+            task=args.task,
+            left_image_keys=_parse_keys(args.left_image_keys),
+            right_image_keys=_parse_keys(args.right_image_keys),
+            state_keys=_parse_keys(args.state_keys),
+        )
+    except Exception as e:
+        simulation_app.close()
+        raise RuntimeError(f"Failed to create IsaacLabEnvBridge for task {args.task}: {e}") from e
+    recorder = EpisodeRecorder() if args.record else None
+    env.reset()
+
+    step_count = 0
+    target_dt = 1.0 / max(args.loop_hz, 1.0)
+    try:
+        while simulation_app.is_running():
+            loop_start = time.perf_counter()
+            _, left_pose, right_pose, left_qpos, right_qpos = teleoperator.step()
+            raw_action = mapper.assemble(left_pose, right_pose, left_qpos, right_qpos)
+            action = _fit_action_dim(raw_action, env.action_dim)
+
+            obs = env.step(action)
+
+            left_img, right_img = _resize_pair(
+                obs.left_rgb,
+                obs.right_rgb,
+                teleoperator.img_height,
+                teleoperator.img_width,
+            )
             np.copyto(teleoperator.img_array, np.hstack((left_img, right_img)))
+
+            if recorder is not None:
+                recorder.append(
+                    left_rgb=obs.left_rgb,
+                    right_rgb=obs.right_rgb,
+                    state=obs.state,
+                    action=action,
+                    cmd=raw_action,
+                )
+
+            step_count += 1
+            if args.max_steps > 0 and step_count >= args.max_steps:
+                break
+
+            elapsed = time.perf_counter() - loop_start
+            if elapsed < target_dt:
+                time.sleep(target_dt - elapsed)
     except KeyboardInterrupt:
-        simulator.end()
-        exit(0)
+        pass
+    except Exception as e:
+        print(f"[!] Runtime loop error: {e}")
+        # Exit loop to allow graceful cleanup in finally block.
+        pass
+    finally:
+        if recorder is not None and step_count > 0:
+            recorder.save(Path(args.output))
+            print(f"Saved episode to: {args.output}")
+        env.close()
+        simulation_app.close()

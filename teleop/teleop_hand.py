@@ -29,6 +29,16 @@ from tv_isaaclab import (  # noqa: E402
     EpisodeRecorder,
 )
 
+
+def _resolve_local_path(path_str: str) -> Path:
+    path = Path(path_str).expanduser()
+    if path.is_absolute() and path.exists():
+        return path
+    for candidate in (Path.cwd() / path, TELEOP_DIR / path, ROOT_DIR / path):
+        if candidate.exists():
+            return candidate.resolve()
+    return (TELEOP_DIR / path).resolve()
+
 class VuerTeleop:
     def __init__(self, config_file_path, ngrok=False, vuer_port=8012):
         self.resolution = (720, 1280)
@@ -62,8 +72,9 @@ class VuerTeleop:
         )
         self.processor = VuerPreprocessor()
 
-        RetargetingConfig.set_default_urdf_dir('../assets')
-        with Path(config_file_path).open('r') as f:
+        RetargetingConfig.set_default_urdf_dir((ROOT_DIR / "assets").as_posix())
+        config_file_path = _resolve_local_path(config_file_path)
+        with config_file_path.open('r') as f:
             cfg = yaml.safe_load(f)
         left_retargeting_config = RetargetingConfig.from_dict(cfg['left'])
         right_retargeting_config = RetargetingConfig.from_dict(cfg['right'])
@@ -119,7 +130,8 @@ class VuerTeleop:
 
 class ActionMapper:
     def __init__(self, config_path):
-        with Path(config_path).open("r") as f:
+        config_path = _resolve_local_path(config_path)
+        with config_path.open("r") as f:
             cfg = yaml.safe_load(f)
         self.action_dim = int(cfg["action_dim"])
         self.mapping = cfg["mapping"]
@@ -217,11 +229,14 @@ if __name__ == '__main__':
     try:
         while simulation_app.is_running():
             loop_start = time.perf_counter()
-            _, left_pose, right_pose, left_qpos, right_qpos = teleoperator.step()
+            head_rmat, left_pose, right_pose, left_qpos, right_qpos = teleoperator.step()
             raw_action = mapper.assemble(left_pose, right_pose, left_qpos, right_qpos)
-            action = _fit_action_dim(raw_action, env.action_dim)
+            if env.supports_teleop_to_action:
+                action = env.teleop_to_action(left_pose, right_pose, left_qpos, right_qpos)
+            else:
+                action = _fit_action_dim(raw_action, env.action_dim)
 
-            obs = env.step(action)
+            obs = env.step(action, head_rmat=head_rmat)
 
             left_img, right_img = _resize_pair(
                 obs.left_rgb,

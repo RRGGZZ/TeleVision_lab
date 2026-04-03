@@ -1,12 +1,47 @@
-import time
 import importlib
 import socket
+import time
+import base64
+from functools import lru_cache
+from pathlib import Path
 from vuer import Vuer
 from vuer.events import ClientEvent
-from vuer.schemas import ImageBackground, group, Hands, WebRTCStereoVideoPlane, DefaultScene
+from vuer.schemas import (
+    Box,
+    Cylinder,
+    DefaultScene,
+    Group,
+    Hands,
+    ImageBackground,
+    Movable,
+    SkeletalGripper,
+    Sphere,
+    Stl,
+    WebRTCStereoVideoPlane,
+)
 from multiprocessing import Array, Process, shared_memory, Queue, Manager, Event, Semaphore, Value
 import numpy as np
 import asyncio
+
+MODULE_DIR = Path(__file__).resolve().parent
+XR_HAND_GRIPPER_OFFSET = [0.0, -0.075, 0.0]
+XR_HAND_GRIPPER_ROTATION = [0.0, 0.0, float(np.pi)]
+XR_LEFT_GRIPPER_COLOR = "#8ED6FF"
+XR_RIGHT_GRIPPER_COLOR = "#FFB3B3"
+XR_LEFT_HAND_COLOR = "#DDE7F4"
+XR_RIGHT_HAND_COLOR = "#F2D6D6"
+XR_DEFAULT_PINCH_WIDTH = 0.03
+XR_MIN_PINCH_WIDTH = 0.008
+XR_MAX_PINCH_WIDTH = 0.045
+XR_THUMB_TIP_INDEX = 4
+XR_INDEX_TIP_INDEX = 9
+
+
+@lru_cache(maxsize=None)
+def _file_to_data_url(path_str: str, mime_type: str) -> str:
+    data = Path(path_str).read_bytes()
+    encoded = base64.b64encode(data).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
 
 def _load_webrtc_symbols():
     """Load WebRTC server symbols only when WebRTC mode is requested."""
@@ -39,6 +74,16 @@ def _find_free_port(start_port, max_tries=32):
             sock.close()
     raise RuntimeError(f"Cannot find a free port near {start_port}")
 
+
+def _resolve_local_file(path_str):
+    path = Path(path_str).expanduser()
+    if path.is_absolute():
+        return path.as_posix()
+    candidate = MODULE_DIR / path
+    if candidate.exists():
+        return candidate.as_posix()
+    return path.as_posix()
+
 class OpenTeleVision:
     def __init__(
         self,
@@ -62,6 +107,8 @@ class OpenTeleVision:
         if ngrok:
             self.app = Vuer(host='0.0.0.0', port=selected_port, queries=dict(grid=False), queue_len=3)
         else:
+            cert_file = _resolve_local_file(cert_file)
+            key_file = _resolve_local_file(key_file)
             self.app = Vuer(
                 host='0.0.0.0',
                 port=selected_port,
@@ -89,6 +136,7 @@ class OpenTeleVision:
         
         self.head_matrix_shared = Array('d', 16, lock=True)
         self.aspect_shared = Value('d', 1.0, lock=True)
+        self._xr_assets = self._load_xr_assets()
         if stream_mode == "webrtc":
             try:
                 webrtc = _load_webrtc_symbols()
@@ -177,8 +225,16 @@ class OpenTeleVision:
             pass
     
     async def main_webrtc(self, session, fps=60):
-        session.upsert @ DefaultScene(frameloop="always")
-        session.upsert @ Hands(fps=fps, stream=True, key="hands", showLeft=True, showRight=True)
+        session.set @ DefaultScene(
+            *self._build_xr_scene_children(),
+            frameloop="always",
+            grid=False,
+            key="default-scene",
+        )
+        session.upsert(
+            Hands(fps=fps, stream=True, key="hands", showLeft=False, showRight=False),
+            to="bgChildren",
+        )
         session.upsert @ WebRTCStereoVideoPlane(
                 src="https://192.168.8.102:8080/offer",
                 # iceServer={},
@@ -187,17 +243,34 @@ class OpenTeleVision:
                 height = 8,
                 position=[0, -2, -0.2],
             )
+        workspace_placed = False
         while True:
-            await asyncio.sleep(1)
+            xr_updates, workspace_placed = self._build_xr_dynamic_updates(workspace_placed)
+            if xr_updates:
+                session.upsert(xr_updates, to="children")
+            await asyncio.sleep(0.03)
     
     async def main_image(self, session, fps=60):
-        session.upsert @ Hands(fps=fps, stream=True, key="hands", showLeft=True, showRight=True)
+        session.set @ DefaultScene(
+            *self._build_xr_scene_children(),
+            frameloop="always",
+            grid=False,
+            key="default-scene",
+        )
+        session.upsert(
+            Hands(fps=fps, stream=True, key="hands", showLeft=False, showRight=False),
+            to="bgChildren",
+        )
+        workspace_placed = False
         end_time = time.time()
         while True:
             start = time.time()
             # print(end_time - start)
             # aspect = self.aspect_shared.value
             display_image = self.img_array
+            xr_updates, workspace_placed = self._build_xr_dynamic_updates(workspace_placed)
+            if xr_updates:
+                session.upsert(xr_updates, to="children")
 
             # session.upsert(
             # ImageBackground(
@@ -257,6 +330,216 @@ class OpenTeleVision:
             # rest_time = 1/fps - time.time() + start
             end_time = time.time()
             await asyncio.sleep(0.03)
+
+    def _load_xr_assets(self):
+        assets = {}
+        try:
+            left_mesh = MODULE_DIR.parent / "assets" / "inspire_hand" / "meshes" / "L_hand_base_link.STL"
+            right_mesh = MODULE_DIR.parent / "assets" / "inspire_hand" / "meshes" / "R_hand_base_link.STL"
+            assets["left_hand_mesh"] = _file_to_data_url(left_mesh.resolve().as_posix(), "model/stl")
+            assets["right_hand_mesh"] = _file_to_data_url(right_mesh.resolve().as_posix(), "model/stl")
+        except OSError as exc:
+            print(f"[!] XR hand mesh preload failed: {exc}")
+        return assets
+
+    @staticmethod
+    def _matrix_to_list(matrix):
+        return np.asarray(matrix, dtype=np.float32).reshape(4, 4).flatten(order="F").tolist()
+
+    @staticmethod
+    def _valid_transform(matrix):
+        matrix = np.asarray(matrix, dtype=np.float32)
+        if matrix.shape != (4, 4):
+            return False
+        if not np.isfinite(matrix).all():
+            return False
+        if abs(float(matrix[3, 3])) < 1e-6:
+            return False
+        return float(np.linalg.norm(matrix)) > 1e-3
+
+    @staticmethod
+    def _valid_landmarks(landmarks):
+        landmarks = np.asarray(landmarks, dtype=np.float32)
+        return landmarks.shape == (25, 3) and np.isfinite(landmarks).all() and float(np.linalg.norm(landmarks)) > 1e-4
+
+    def _pinch_width(self, landmarks):
+        if not self._valid_landmarks(landmarks):
+            return XR_DEFAULT_PINCH_WIDTH
+        thumb_tip = landmarks[XR_THUMB_TIP_INDEX]
+        index_tip = landmarks[XR_INDEX_TIP_INDEX]
+        pinch_distance = float(np.linalg.norm(thumb_tip - index_tip))
+        return float(np.clip(0.5 * pinch_distance, XR_MIN_PINCH_WIDTH, XR_MAX_PINCH_WIDTH))
+
+    def _workspace_root_matrix(self):
+        head_matrix = self.head_matrix
+        if not self._valid_transform(head_matrix):
+            return None
+
+        head_matrix = np.asarray(head_matrix, dtype=np.float32)
+        head_pos = head_matrix[:3, 3]
+        up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+
+        forward = -head_matrix[:3, 2]
+        forward[1] = 0.0
+        forward_norm = float(np.linalg.norm(forward))
+        if forward_norm < 1e-6:
+            forward = np.array([0.0, 0.0, -1.0], dtype=np.float32)
+        else:
+            forward /= forward_norm
+
+        right = np.cross(forward, up)
+        right_norm = float(np.linalg.norm(right))
+        if right_norm < 1e-6:
+            right = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+        else:
+            right /= right_norm
+
+        forward = np.cross(up, right)
+        forward /= max(float(np.linalg.norm(forward)), 1e-6)
+
+        workspace_pos = head_pos + 0.55 * forward - 0.18 * up
+        workspace_matrix = np.eye(4, dtype=np.float32)
+        workspace_matrix[:3, 0] = right
+        workspace_matrix[:3, 1] = up
+        workspace_matrix[:3, 2] = forward
+        workspace_matrix[:3, 3] = workspace_pos
+        return self._matrix_to_list(workspace_matrix)
+
+    def _build_hand_visual(self, side, mesh_color, gripper_color):
+        children = []
+        mesh_src = self._xr_assets.get(f"{side}_hand_mesh")
+        if mesh_src:
+            children.append(
+                Stl(
+                    src=mesh_src,
+                    color=mesh_color,
+                    opacity=0.82,
+                    castShadow=True,
+                    receiveShadow=True,
+                    key=f"tv-{side}-hand-mesh",
+                )
+            )
+        children.append(
+            SkeletalGripper(
+                key=f"tv-{side}-hand-gripper",
+                color=gripper_color,
+                opacity=0.95,
+                position=XR_HAND_GRIPPER_OFFSET,
+                rotation=XR_HAND_GRIPPER_ROTATION,
+                pinchWidth=XR_DEFAULT_PINCH_WIDTH,
+            )
+        )
+        return Group(
+            *children,
+            key=f"tv-{side}-hand-visual",
+            hide=True,
+        )
+
+    def _build_workspace_visual(self):
+        return Group(
+            Box(
+                args=[0.42, 0.02, 0.28],
+                position=[0.0, 0.0, 0.0],
+                materialType="standard",
+                material=dict(color="#5C6570", roughness=0.88, metalness=0.08),
+                castShadow=True,
+                receiveShadow=True,
+                key="tv-xr-table-top",
+            ),
+            Cylinder(
+                args=[0.055, 0.07, 0.16, 24],
+                position=[0.0, -0.09, 0.0],
+                materialType="standard",
+                material=dict(color="#434B55", roughness=0.92, metalness=0.1),
+                castShadow=True,
+                receiveShadow=True,
+                key="tv-xr-table-pedestal",
+            ),
+            Box(
+                args=[0.11, 0.01, 0.11],
+                position=[0.14, 0.015, -0.01],
+                materialType="standard",
+                material=dict(
+                    color="#8ED6FF",
+                    roughness=0.45,
+                    metalness=0.12,
+                    transparent=True,
+                    opacity=0.72,
+                ),
+                key="tv-xr-drop-zone",
+            ),
+            Movable(
+                Box(
+                    args=[0.065, 0.065, 0.065],
+                    materialType="standard",
+                    material=dict(color="#FFB347", roughness=0.32, metalness=0.06),
+                    castShadow=True,
+                    receiveShadow=True,
+                    key="tv-xr-pickup-cube-geom",
+                ),
+                Sphere(
+                    args=[0.012, 24, 24],
+                    position=[0.0, 0.048, 0.0],
+                    materialType="standard",
+                    material=dict(color="#FFF7E3", emissive="#FFF7E3", emissiveIntensity=0.25),
+                    key="tv-xr-pickup-cube-handle",
+                ),
+                key="tv-xr-pickup-cube",
+                position=[-0.06, 0.05, 0.0],
+                scale=0.5,
+                handle=0.05,
+                showFrame=False,
+                localRotation=True,
+            ),
+            key="tv-xr-workspace",
+            hide=True,
+        )
+
+    def _build_xr_scene_children(self):
+        return [
+            self._build_hand_visual("left", XR_LEFT_HAND_COLOR, XR_LEFT_GRIPPER_COLOR),
+            self._build_hand_visual("right", XR_RIGHT_HAND_COLOR, XR_RIGHT_GRIPPER_COLOR),
+            self._build_workspace_visual(),
+        ]
+
+    def _build_xr_dynamic_updates(self, workspace_placed):
+        updates = []
+
+        if not workspace_placed:
+            workspace_matrix = self._workspace_root_matrix()
+            if workspace_matrix is not None:
+                updates.append(
+                    Group(
+                        key="tv-xr-workspace",
+                        matrix=workspace_matrix,
+                        hide=False,
+                    )
+                )
+                workspace_placed = True
+
+        for side, color in (("left", XR_LEFT_GRIPPER_COLOR), ("right", XR_RIGHT_GRIPPER_COLOR)):
+            hand_matrix = getattr(self, f"{side}_hand")
+            hand_visible = self._valid_transform(hand_matrix)
+            updates.append(
+                Group(
+                    key=f"tv-{side}-hand-visual",
+                    hide=not hand_visible,
+                    **({"matrix": self._matrix_to_list(hand_matrix)} if hand_visible else {}),
+                )
+            )
+            if hand_visible:
+                updates.append(
+                    SkeletalGripper(
+                        key=f"tv-{side}-hand-gripper",
+                        color=color,
+                        opacity=0.95,
+                        position=XR_HAND_GRIPPER_OFFSET,
+                        rotation=XR_HAND_GRIPPER_ROTATION,
+                        pinchWidth=self._pinch_width(getattr(self, f"{side}_landmarks")),
+                    )
+                )
+
+        return updates, workspace_placed
 
     @property
     def left_hand(self):

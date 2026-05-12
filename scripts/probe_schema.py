@@ -8,12 +8,13 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
 from tv_isaaclab import launch_simulation_app, IsaacLabEnvBridge
+from tv_isaaclab.contracts import H1_TASK_ID, TELEOP_TASK_ID
 import argparse
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", type=str, default="television_lab")
+    parser.add_argument("--task", type=str, default=TELEOP_TASK_ID, choices=[TELEOP_TASK_ID, H1_TASK_ID])
     from tv_isaaclab import add_app_launcher_args
     add_app_launcher_args(parser)
     args = parser.parse_args()
@@ -29,6 +30,10 @@ def main():
 
     print("\n=== ENVIRONMENT SCHEMA ===\n")
     print(f"Action dimension: {env.action_dim}")
+    print(f"Action schema: {env.action_schema}")
+    print(f"State schema: {env.state_schema}")
+    print(f"Supports teleop mapping: {env.supports_teleop_to_action}")
+    print(f"Real env backend: {env.is_real_env}")
     print(f"Left RGB shape: {obs.left_rgb.shape}")
     print(f"Right RGB shape: {obs.right_rgb.shape}")
     print(f"State shape: {obs.state.shape}")

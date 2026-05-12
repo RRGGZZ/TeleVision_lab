@@ -1,216 +1,245 @@
-<h1 align="center"><img src="img/logo.png" width="40"> Open-TeleVision: Teleoperation with
+# TeleVision_lab
 
-Immersive Active Visual Feedback</h1>
+Isaac Lab / Isaac Sim migration workspace for [Open-TeleVision](https://github.com/OpenTeleVision/TeleVision).
 
-<p align="center">
-    <a href="https://chengxuxin.github.io/"><strong>Xuxin Cheng*</strong></a>
-    ·
-    <a href=""><strong>Jialong Li*</strong></a>
-    ·
-    <a href="https://aaronyang1223.github.io/"><strong>Shiqi Yang</strong></a>
-    <br>
-    <a href="https://www.episodeyang.com/"><strong>Ge Yang</strong></a>
-    ·
-    <a href="https://xiaolonw.github.io/"><strong>Xiaolong Wang</strong></a>
-</p>
+This repository keeps the original teleoperation and imitation-learning workflow, while progressively replacing the old IsaacGym simulation path with Isaac Lab tasks, tooling, and dataset contracts.
 
-<p align="center">
-    <img src="img/UCSanDiegoLogo-BlueGold.png" height=50"> &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
-    <img src="img/mit-logo.png" height="50">
-</p>
+## Current Migration Status
 
-<h3 align="center"> CoRL 2024 </h3>
+The migration is now organized around two explicit task contracts:
 
-<p align="center">
-<h3 align="center"><a href="https://robot-tv.github.io/">Website</a> | <a href="https://arxiv.org/abs/2407.01512/">arXiv</a> | <a href="">Video</a> | <a href="">Summary</a> </h3>
-  <div align="center"></div>
-</p>
+- `television_lab`: teleoperation collection scene with dual floating Inspire hands and legacy 38D commands
+- `television_h1`: H1 replay / policy-consumption scene with canonical 26D actions and compatibility for legacy 28D recordings
 
-<p align="center">
-<img src="./img/main.webp" width="80%"/>
-</p>
+The codebase also records schema metadata into processed HDF5 episodes:
 
-## Introduction
-This code contains implementation for teleoperation and imitation learning of Open-TeleVision.
+- `action_schema`
+- `cmd_schema`
+- `state_schema`
+
+Replay and deploy scripts use this metadata to route episodes to the correct task automatically.
+
+## Runtime Model
+
+Task registration now prefers real Isaac Lab tasks first:
+
+- real path: DirectRLEnv-style task definitions in [tv_isaaclab/tasks/television_lab_real.py](tv_isaaclab/tasks/television_lab_real.py)
+- fallback path: adapter environments in [tv_isaaclab/tasks/television_lab.py](tv_isaaclab/tasks/television_lab.py)
+
+If Isaac Lab is unavailable, the repository still exposes a fallback environment so dataset tooling, replay tooling, and regression tests continue to work.
 
 ## Installation
 
+### Base Python Environment
+
 ```bash
-    conda create -n tv python=3.8
-    conda activate tv
-    pip install -r requirements.txt
-    cd act/detr && pip install -e .
+conda create -n tv python=3.8
+conda activate tv
+pip install -r requirements.txt
+cd act/detr && pip install -e .
 ```
 
-**For Python 3.11+ environments** (like `television_lab`):
+### Python 3.11+ Environment
 
-See [SETUP_PYTHON311.md](SETUP_PYTHON311.md) for complete setup instructions. Key differences:
-- `dex-retargeting` installed from GitHub (0.5.0 supports Python 3.11+)
-- numpy constrained to `<2.0` for Isaac Lab compatibility
-- Quick setup: `bash install_deps.sh`
+For Python 3.11+ setups such as `television_lab`, see [SETUP_PYTHON311.md](SETUP_PYTHON311.md).
 
-Install ZED sdk: https://www.stereolabs.com/developers/release/
+Important differences:
 
-Install ZED Python API:
-```
-    cd /usr/local/zed/ && python get_python_api.py
-```
+- `dex-retargeting` is installed from GitHub
+- `numpy` is constrained to `<2.0` for Isaac Lab compatibility
+- `gymnasium>=0.29.1` is required
+- quick setup script: `bash install_deps.sh`
 
-If you want to run simulation teleoperation, replay, and policy deployment in Isaac Lab:
+### Isaac Lab / Isaac Sim
 
-Install Isaac Lab first, and make sure your task environment is registered (for this repo: `television_lab`).
+To run the real simulation path:
 
-## Teleoperation Guide
+1. Install Isaac Lab / Isaac Sim.
+2. Install this repository's Python dependencies in the same environment.
+3. Launch scripts through the wrappers in [tv_isaaclab/bootstrap.py](tv_isaaclab/bootstrap.py).
 
-### Local streaming
-For **Quest** local streaming, follow [this](https://github.com/OpenTeleVision/TeleVision/issues/12#issue-2401541144) issue.
+Notes:
 
-**Apple** does not allow WebXR on non-https connections. To test the application locally, we need to create a self-signed certificate and install it on the client. You need a ubuntu machine and a router. Connect the VisionPro and the ubuntu machine to the same router. 
-1. install mkcert: https://github.com/FiloSottile/mkcert
-2. check local ip address: 
+- camera pipelines are enabled before `AppLauncher` starts
+- scripts assume the Isaac Lab app can create stereo camera outputs
+- if `gymnasium` is missing, runtime task registration will fail even if the static tests pass
 
-```
-    ifconfig | grep inet
-```
-Suppose the local ip address of the ubuntu machine is `192.168.8.102`.
+### ZED SDK
 
-3. create certificate: 
+Install the ZED SDK from [StereoLabs](https://www.stereolabs.com/developers/release/).
 
-```
-    mkcert -install && mkcert -cert-file cert.pem -key-file key.pem 192.168.8.102 localhost 127.0.0.1
-```
-ps. place the generated `cert.pem` and `key.pem` files in `teleop`.
+Install the Python API:
 
-4. open firewall on server
-```
-    sudo iptables -A INPUT -p tcp --dport 8012 -j ACCEPT
-    sudo iptables-save
-    sudo iptables -L
-```
-or can be done with `ufw`:
-```
-    sudo ufw allow 8012
-```
-5.
-```
-    tv = OpenTeleVision(self.resolution_cropped, shm.name, image_queue, toggle_streaming, ngrok=False)
+```bash
+cd /usr/local/zed/
+python get_python_api.py
 ```
 
-6. install ca-certificates on VisionPro
-```
-    mkcert -CAROOT
-```
-Copy the rootCA.pem via AirDrop to VisionPro and install it.
+## Teleoperation
 
-Settings > General > About > Certificate Trust Settings. Under "Enable full trust for root certificates", turn on trust for the certificate.
+### Local Streaming
 
-settings > Apps > Safari > Advanced > Feature Flags > Enable WebXR Related Features
+For Quest local streaming, see the upstream Open-TeleVision discussion:
 
-7. open the browser on Safari on VisionPro and go to `https://192.168.8.102:8012?ws=wss://192.168.8.102:8012`
+- [Issue #12](https://github.com/OpenTeleVision/TeleVision/issues/12#issue-2401541144)
 
-8. Click `Enter VR` and ``Allow`` to start the VR session.
+For Vision Pro over local HTTPS, you still need to provision certificates in `teleop/` and open the streaming port. The original Open-TeleVision workflow is preserved here.
 
 ### Network Streaming
-For Meta Quest3, installation of the certificate is not trivial. We need to use a network streaming solution. We use `ngrok` to create a secure tunnel to the server. This method will work for both VisionPro and Meta Quest3.
 
-1. Install ngrok: https://ngrok.com/download
-2. Run ngrok
-```
-    ngrok http 8012
-```
-3. Copy the https address and open the browser on Meta Quest3 and go to the address.
+For Meta Quest 3 or remote secure access, `ngrok` is still supported:
 
-ps. When using ngrok for network streaming, remember to call `OpenTeleVision` with:
-```
-    self.tv = OpenTeleVision(self.resolution_cropped, self.shm.name, image_queue, toggle_streaming, ngrok=True)
+```bash
+ngrok http 8012
 ```
 
-### Isaac Lab Teleoperation Example
+When using network streaming, initialize `OpenTeleVision` with `ngrok=True`.
 
-**1. Verify Isaac Lab Installation**
+### Isaac Lab Teleoperation Workflow
 
-Run integration tests to verify migration:
-```
-    cd scripts && python test_integration.py
-```
+#### 1. Smoke-Test the Task
 
-Expected output: `🎉 All tests passed! Isaac Lab migration is successful.`
+Teleop task:
 
-**2. Get Environment Schema**
-
-```
-    python ../scripts/quick_probe.py
+```bash
+cd scripts
+python test_integration.py --task television_lab
 ```
 
-This shows:
-- Action space: Box(-1.0, 1.0, (38,), float32)
-- Observation keys: observation.image.{left,right}, observation.state
-- Image dimensions: 512x512 RGB
-- State dimension: 38D
+H1 replay task:
 
-**3. Record Episodes with VisionPro**
-
-After setting up streaming with either local or network streaming, record teleoperation episodes:
-
-```
-    cd teleop && python teleop_hand.py --task television_lab --record --output ../data/recordings/isaaclab/processed_episode_0.hdf5
+```bash
+cd scripts
+python test_integration.py --task television_h1
 ```
 
-Alternatively, batch collect multiple episodes:
+#### 2. Inspect the Schema
 
-```
-    cd scripts && python collect_episodes.py --num_episodes 5 --task television_lab --output_dir ../data/recordings/isaaclab
-```
+Quick probe without full Isaac Lab app launch:
 
-**4. Replay Episodes**
-
-Verify collected episodes by replaying them in the environment:
-
-```
-    cd scripts && python replay_demo.py --task television_lab --episode_path ../data/recordings/isaaclab/processed_episode_0.hdf5
+```bash
+python quick_probe.py --task television_lab
 ```
 
-If your environment uses different observation key names, pass key paths explicitly:
+Real Isaac Lab schema probe:
 
-```
-    cd teleop && python teleop_hand.py --task television_lab \
-      --left_image_keys observation.image.left --right_image_keys observation.image.right --state_keys observation.state
-```
-
-For more detailed testing and troubleshooting, see [TESTING.md](TESTING.md).
-
-## Training Guide
-1. Collect or download dataset. See "Record Episodes with VisionPro" above or download from https://drive.google.com/drive/folders/11WO96mUMjmxRo9Hpvm4ADz7THuuGNEMY?usp=sharing.
-
-2. Place the collected dataset in ``data/recordings/isaaclab/``.
-
-3. Process the specified dataset for training using ``scripts/post_process.py`` (if needed).
-
-4. You can verify the image and action sequences of a specific episode in Isaac Lab using ``scripts/replay_demo.py`` (see above).
-
-5. To train ACT, run:
-```
-    python imitate_episodes.py --policy_class ACT --kl_weight 10 --chunk_size 60 --hidden_dim 512 --batch_size 45 --dim_feedforward 3200 --num_epochs 50000 --lr 5e-5 --seed 0 --taskid 00 --exptid 01-sample-expt
+```bash
+python probe_schema.py --task television_lab
 ```
 
-6. After training, save jit for the desired checkpoint:
-```
-    python imitate_episodes.py --policy_class ACT --kl_weight 10 --chunk_size 60 --hidden_dim 512 --batch_size 45 --dim_feedforward 3200 --num_epochs 50000 --lr 5e-5 --seed 0 --taskid 00 --exptid 01-sample-expt\
-                               --save_jit --resume_ckpt 25000
+Typical contracts:
+
+- `television_lab`: 38D action/state, stereo RGB observations, native teleop-to-action mapping
+- `television_h1`: 26D canonical replay action/state, stereo RGB observations, legacy 28D replay adaptation
+
+#### 3. Record Teleoperation Episodes
+
+Single episode:
+
+```bash
+cd teleop
+python teleop_hand.py --task television_lab --record --output ../data/recordings/isaaclab/processed_episode_0.hdf5
 ```
 
-7. You can visualize the trained policy in Isaac Lab with inputs from dataset using ``scripts/deploy_sim.py``, example usage:
+Batch collection:
+
+```bash
+cd scripts
+python collect_episodes.py --num_episodes 5 --task television_lab --output_dir ../data/recordings/isaaclab
 ```
-    cd scripts && python deploy_sim.py --task television_lab --taskid 00 --exptid 01 --resume_ckpt 25000
+
+#### 4. Replay Episodes
+
+Task is inferred from episode metadata by default:
+
+```bash
+cd scripts
+python replay_demo.py --episode_path ../data/recordings/isaaclab/processed_episode_0.hdf5
 ```
+
+Manual override is still available:
+
+```bash
+cd scripts
+python replay_demo.py --task television_h1 --episode_path ../data/recordings/isaaclab/processed_episode_0.hdf5
+```
+
+If your environment uses different observation key names:
+
+```bash
+python replay_demo.py --episode_path ../data/recordings/isaaclab/processed_episode_0.hdf5 --left_image_keys observation.image.left --right_image_keys observation.image.right --state_keys observation.state
+```
+
+## Dataset and Training
+
+1. Collect or obtain episodes.
+2. Place them under `data/recordings/...`.
+3. If starting from raw teleop / real-robot captures, run [scripts/post_process.py](scripts/post_process.py).
+4. Use [scripts/replay_demo.py](scripts/replay_demo.py) to verify image/action alignment before training.
+
+Processed datasets now carry schema metadata, and the training loader:
+
+- discovers `processed_episode_*.hdf5` by glob instead of assuming contiguous numbering
+- rejects mixed task contracts within one processed dataset directory
+- derives `state_dim` and `action_dim` from the actual dataset stats
+
+### Train ACT
+
+```bash
+python imitate_episodes.py --policy_class ACT --kl_weight 10 --chunk_size 60 --hidden_dim 512 --batch_size 45 --dim_feedforward 3200 --num_epochs 50000 --lr 5e-5 --seed 0 --taskid 00 --exptid 01-sample-expt
+```
+
+### Export JIT
+
+```bash
+python imitate_episodes.py --policy_class ACT --kl_weight 10 --chunk_size 60 --hidden_dim 512 --batch_size 45 --dim_feedforward 3200 --num_epochs 50000 --lr 5e-5 --seed 0 --taskid 00 --exptid 01-sample-expt --save_jit --resume_ckpt 25000
+```
+
+### Deploy in Isaac Lab
+
+By default the deploy script infers the task from episode metadata:
+
+```bash
+cd scripts
+python deploy_sim.py --taskid 00 --exptid 01 --resume_ckpt 25000
+```
+
+Explicit H1 deployment:
+
+```bash
+cd scripts
+python deploy_sim.py --task television_h1 --taskid 00 --exptid 01 --resume_ckpt 25000
+```
+
+## Key Files
+
+- [tv_isaaclab/contracts.py](tv_isaaclab/contracts.py): shared action/state/task contracts
+- [tv_isaaclab/env_bridge.py](tv_isaaclab/env_bridge.py): schema-aware environment bridge
+- [tv_isaaclab/tasks/television_lab_real.py](tv_isaaclab/tasks/television_lab_real.py): real Isaac Lab task skeletons
+- [tv_isaaclab/tasks/television_lab.py](tv_isaaclab/tasks/television_lab.py): fallback adapter tasks
+- [tests/test_action_contracts.py](tests/test_action_contracts.py): migration contract regressions
+- [tests/test_migration_contracts.py](tests/test_migration_contracts.py): task registration and bridge regressions
+
+## Validation
+
+Static verification already used in this migration:
+
+```bash
+py -3 -m py_compile tv_isaaclab/contracts.py tv_isaaclab/env_bridge.py tv_isaaclab/recording.py tv_isaaclab/tasks/television_lab.py tv_isaaclab/tasks/television_lab_real.py teleop/teleop_hand.py scripts/collect_episodes.py scripts/replay_demo.py scripts/deploy_sim.py scripts/post_process.py act/utils.py act/imitate_episodes.py
+py -3 -m unittest discover -s tests -v
+```
+
+Known limitation:
+
+- without a working Isaac Lab + `gymnasium` runtime environment, these checks validate migration structure and contracts but not full Isaac Sim runtime execution
 
 ## Citation
-```
+
+```bibtex
 @article{cheng2024tv,
-title={Open-TeleVision: Teleoperation with Immersive Active Visual Feedback},
-author={Cheng, Xuxin and Li, Jialong and Yang, Shiqi and Yang, Ge and Wang, Xiaolong},
-journal={arXiv preprint arXiv:2407.01512},
-year={2024}
+  title={Open-TeleVision: Teleoperation with Immersive Active Visual Feedback},
+  author={Cheng, Xuxin and Li, Jialong and Yang, Shiqi and Yang, Ge and Wang, Xiaolong},
+  journal={arXiv preprint arXiv:2407.01512},
+  year={2024}
 }
 ```
-# TeleVision_lab

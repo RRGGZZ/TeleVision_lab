@@ -4,6 +4,8 @@ from typing import List, Optional
 import h5py
 import numpy as np
 
+from .contracts import TELEOP_CMD_SCHEMA, TELEOP_STATE_SCHEMA
+
 
 def _to_chw_uint8(image: np.ndarray) -> np.ndarray:
     arr = np.asarray(image)
@@ -18,12 +20,21 @@ def _to_chw_uint8(image: np.ndarray) -> np.ndarray:
 
 
 class EpisodeRecorder:
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        action_schema: str = TELEOP_CMD_SCHEMA,
+        cmd_schema: str = TELEOP_CMD_SCHEMA,
+        state_schema: str = TELEOP_STATE_SCHEMA,
+    ):
         self.left_images: List[np.ndarray] = []
         self.right_images: List[np.ndarray] = []
         self.states: List[np.ndarray] = []
         self.actions: List[np.ndarray] = []
         self.cmds: List[np.ndarray] = []
+        self.action_schema = action_schema
+        self.cmd_schema = cmd_schema
+        self.state_schema = state_schema
 
     def append(
         self,
@@ -53,3 +64,6 @@ class EpisodeRecorder:
             hf.create_dataset("cmds", data=np.stack(self.cmds, axis=0).astype(np.float32))
             hf.attrs["sim"] = True
             hf.attrs["init_action"] = np.asarray(self.cmds[0], dtype=np.float32)
+            hf.attrs["action_schema"] = self.action_schema
+            hf.attrs["cmd_schema"] = self.cmd_schema
+            hf.attrs["state_schema"] = self.state_schema

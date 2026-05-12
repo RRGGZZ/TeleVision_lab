@@ -15,6 +15,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from act.utils import parse_id
 from tv_isaaclab import add_app_launcher_args, launch_simulation_app
+from tv_isaaclab.contracts import H1_TASK_ID, infer_task_from_episode
 # from act.imitate_episodes import RECORD_DIR, DATA_DIR, LOG_DIR
 
 current_dir = Path(__file__).parent.resolve()
@@ -38,17 +39,43 @@ def load_policy(policy_path, device):
     return policy
 
 
-def normalize_input(state, left_img, right_img, norm_stats, last_action_data=None):
-    # import ipdb; ipdb.set_trace()
-    # left_img = cv2.resize(left_img, (308, 224))
-    # right_img = cv2.resize(right_img, (308, 224))
-    image_data = torch.from_numpy(np.stack([left_img, right_img], axis=0)) / 255.0
-    qpos_data = (torch.from_numpy(state) - norm_stats["qpos_mean"]) / norm_stats["qpos_std"]
-    image_data = image_data.view((1, 2, 3, 480, 640)).to(device='cuda')
-    qpos_data = qpos_data.view((1, 26)).to(device='cuda')
+def _to_chw_image(image: np.ndarray) -> np.ndarray:
+    array = np.asarray(image)
+    if array.ndim != 3:
+        raise ValueError(f"Expected image with 3 dims, got shape={array.shape}")
+    if array.shape[0] in (1, 3, 4) and array.shape[-1] not in (1, 3, 4):
+        return array[:3]
+    if array.shape[-1] in (3, 4):
+        return np.transpose(array[..., :3], (2, 0, 1))
+    raise ValueError(f"Unsupported image layout for shape={array.shape}")
+
+
+def normalize_input(
+    state,
+    left_img,
+    right_img,
+    norm_stats,
+    last_action_data=None,
+    device="cuda",
+):
+    left_chw = _to_chw_image(left_img)
+    right_chw = _to_chw_image(right_img)
+    image_np = np.stack([left_chw, right_chw], axis=0).astype(np.float32) / 255.0
+    image_data = torch.from_numpy(image_np).unsqueeze(0).to(device=device)
+
+    qpos_mean = np.asarray(norm_stats["qpos_mean"], dtype=np.float32).reshape(-1)
+    qpos_std = np.asarray(norm_stats["qpos_std"], dtype=np.float32).reshape(-1)
+    state_np = np.asarray(state, dtype=np.float32).reshape(-1)
+    qpos_data = (torch.from_numpy(state_np) - torch.from_numpy(qpos_mean)) / torch.from_numpy(qpos_std)
+    qpos_data = qpos_data.view((1, -1)).to(device=device)
 
     if last_action_data is not None:
-        last_action_data = torch.from_numpy(last_action_data).to(device='cuda').view((1, -1)).to(torch.float)
+        last_action_data = (
+            torch.from_numpy(np.asarray(last_action_data, dtype=np.float32))
+            .to(device=device)
+            .view((1, -1))
+            .to(torch.float)
+        )
         qpos_data = torch.cat((qpos_data, last_action_data), dim=1)
     return (qpos_data, image_data)
 
@@ -69,7 +96,7 @@ if __name__ == '__main__':
     parser.add_argument('--taskid', action='store', type=str, help='task id', required=True)
     parser.add_argument('--exptid', action='store', type=str, help='experiment id', required=True)
     parser.add_argument('--resume_ckpt', action='store', type=str, help='resume checkpoint', required=True)
-    parser.add_argument('--task', type=str, default='television_lab', help='Isaac Lab task name')
+    parser.add_argument('--task', type=str, default='', help='Isaac Lab task name')
     parser.add_argument('--left_image_keys', type=str, default='')
     parser.add_argument('--right_image_keys', type=str, default='')
     parser.add_argument('--state_keys', type=str, default='')
@@ -82,13 +109,12 @@ if __name__ == '__main__':
     task_dir, task_name = parse_id(RECORD_DIR, args['taskid'])
     episode_path = (Path(task_dir) / 'processed' / episode_name).resolve()
     exp_path, _ = parse_id((Path(LOG_DIR) / task_name).resolve(), args['exptid'])
+    resolved_task = args['task'] or infer_task_from_episode(episode_path, fallback=H1_TASK_ID)
     
     norm_stat_path = Path(exp_path) / "dataset_stats.pkl"
     policy_path = Path(exp_path) / f"traced_jit_{args['resume_ckpt']}.pt"
     
     temporal_agg = True
-    action_dim = 28
-
     chunk_size = 60
     device = "cuda"
 
@@ -100,6 +126,7 @@ if __name__ == '__main__':
     init_action = np.array(data.attrs['init_action'])
     data.close()
     timestamps = states.shape[0]
+    action_dim = actions.shape[-1]
 
     norm_stats = get_norm_stats(norm_stat_path)
     policy = load_policy(policy_path, device)
@@ -119,7 +146,7 @@ if __name__ == '__main__':
         return [x.strip() for x in raw.split(",") if x.strip()] if raw else None
 
     player = Player(
-        task=args['task'],
+        task=resolved_task,
         left_image_keys=parse_keys(args['left_image_keys']),
         right_image_keys=parse_keys(args['right_image_keys']),
         state_keys=parse_keys(args['state_keys']),
@@ -139,7 +166,14 @@ if __name__ == '__main__':
             if history_stack > 0:
                 last_action_data = np.array(last_action_queue)
 
-            data = normalize_input(states[t], left_imgs[t], right_imgs[t], norm_stats, last_action_data)
+            data = normalize_input(
+                states[t],
+                left_imgs[t],
+                right_imgs[t],
+                norm_stats,
+                last_action_data,
+                device=device,
+            )
 
             if temporal_agg:
                 output = policy(*data)[0].detach().cpu().numpy() # (1,chuck_size,action_dim)

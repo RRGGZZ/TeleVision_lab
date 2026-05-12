@@ -61,10 +61,15 @@ def main(args):
     # num_episodes = task_config['num_episodes']
     # episode_len = task_config['episode_len']
     camera_names = ['left', 'right']
+    train_dataloader, val_dataloader, stats, _, dataset_meta = load_data(
+        dataset_dir, camera_names, batch_size_train, batch_size_val
+    )
+    state_dim = int(np.asarray(stats["qpos_mean"]).reshape(-1).shape[0])
+    action_dim = int(np.asarray(stats["action_mean"]).reshape(-1).shape[0])
+    sample_batch = next(iter(train_dataloader))
+    image_shape = tuple(sample_batch[0].shape[1:])
 
     # fixed parameters
-    state_dim = 26
-    action_dim = 28
     lr_backbone = 1e-5
     backbone = 'dino_v2'
     if policy_class == 'ACT':
@@ -106,16 +111,19 @@ def main(args):
         'seed': args['seed'],
         'temporal_agg': args['temporal_agg'],
         'camera_names': camera_names,
+        'image_shape': image_shape,
         # 'real_robot': not is_sim
         'resumeid': args['resumeid'],
         'resume_ckpt': args['resume_ckpt'],
         'task_name': task_name,
         'exptid': args['exptid'],
+        'dataset_task': dataset_meta['task'],
+        'action_schema': dataset_meta['action_schema'],
+        'state_schema': dataset_meta['state_schema'],
     }
     mode = "disabled" if args["no_wandb"] or args["save_jit"] else "online"
     wandb.init(project="television", name=args['exptid'], group=task_name, entity="cxx", mode=mode, dir="../data/logs")
     wandb.config.update(config)
-    train_dataloader, val_dataloader, stats, _ = load_data(dataset_dir, camera_names, batch_size_train, batch_size_val)
 
     # save dataset stats
     if not os.path.isdir(ckpt_dir):
@@ -317,7 +325,7 @@ def save_jit(config):
     policy, ckpt_name, epoch = load_ckpt(policy, exp_dir, config['resume_ckpt'])
 
     policy.eval()
-    image_data = torch.rand((1, 2, 3, 480, 640), device='cuda')
+    image_data = torch.rand((1, *config['image_shape']), device='cuda')
     qpos_data = torch.rand((1, config['state_dim']), device='cuda')
     input_data = (qpos_data, image_data)
 

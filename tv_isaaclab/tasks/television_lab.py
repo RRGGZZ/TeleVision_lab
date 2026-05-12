@@ -1,25 +1,40 @@
-"""television_lab adapter env with real Isaac Lab scene fallback."""
+"""TeleVision adapter envs with Isaac Lab scene fallback."""
 
 import os
 from dataclasses import dataclass
 from typing import Any, Optional
 
-import cv2
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 
+from tv_isaaclab.contracts import (
+    H1_ACTION_DIM,
+    H1_STATE_SCHEMA,
+    H1_TASK_ID,
+    TELEOP_ACTION_DIM,
+    TELEOP_STATE_SCHEMA,
+    TELEOP_TASK_ID,
+    adapt_h1_action,
+    assemble_teleop_action,
+    h1_action_to_qpos,
+)
+
 
 @dataclass
 class TelevisionLabConfig:
-    """Configuration for television_lab adapter environment."""
+    """Configuration for TeleVision adapter environments."""
 
-    action_dim: int = 38
+    action_dim: int = TELEOP_ACTION_DIM
     image_width: int = 512
     image_height: int = 512
-    state_dim: int = 38
-    # Use one explicit real-scene Isaac task to avoid costly multi-task probing.
-    base_task_id: str = "Isaac-Cartpole-Direct-v0"
+    state_dim: int = TELEOP_ACTION_DIM
+    scene_mode: str = "teleop"
+    task_id: str = TELEOP_TASK_ID
+    state_schema: str = TELEOP_STATE_SCHEMA
+    # Optional Isaac Lab task id to borrow rendering/scene data from.
+    # Leave empty by default so TeleVision does not silently bind to an unrelated task.
+    base_task_id: str = ""
 
 
 class TelevisionLabEnv(gym.Env):
@@ -36,6 +51,7 @@ class TelevisionLabEnv(gym.Env):
         self.render_mode = render_mode
         self.step_count = 0
         self.max_steps = 1000
+        self.supports_teleop_to_action = self.cfg.scene_mode == "teleop"
 
         self.action_space = spaces.Box(
             low=-1.0,
@@ -86,6 +102,9 @@ class TelevisionLabEnv(gym.Env):
         self.base_task = None
         self._last_raw_obs = None
         self._state = np.zeros(self.cfg.state_dim, dtype=np.float32)
+        self._last_action = np.zeros(self.cfg.action_dim, dtype=np.float32)
+        self._head_rmat = np.eye(3, dtype=np.float32)
+        self._h1_qpos = np.zeros(51, dtype=np.float32)
 
         self._try_create_base_env()
 
@@ -102,7 +121,9 @@ class TelevisionLabEnv(gym.Env):
             print("[!] Could not import parse_env_cfg from isaaclab_tasks")
             return
 
-        task = os.getenv("TELEVISION_LAB_BASE_TASK", self.cfg.base_task_id)
+        task = os.getenv("TELEVISION_LAB_BASE_TASK", self.cfg.base_task_id).strip()
+        if not task:
+            return
         try:
             env_cfg = parse_env_cfg(task, device="cuda:0", num_envs=1)
             os.environ.setdefault("ENABLE_CAMERAS", "1")
@@ -180,7 +201,11 @@ class TelevisionLabEnv(gym.Env):
         return arr
 
     def _generate_synthetic_frame(
-        self, h: int, w: int, action: np.ndarray = None
+        self,
+        h: int,
+        w: int,
+        action: np.ndarray = None,
+        eye_sign: float = 0.0,
     ) -> np.ndarray:
         """Generate a synthetic frame that shows some visual structure.
 
@@ -206,11 +231,15 @@ class TelevisionLabEnv(gym.Env):
         table_y = int(h * 0.7)
         frame[table_y:, :] = np.array([80, 70, 60], dtype=np.uint8)
 
-        # If we have action data, visualize the hand positions
+        # If we have action data, visualize the commanded end-effectors.
         if action is not None and len(action) >= 38:
+            head_forward = self._head_rmat @ np.array([1.0, 0.0, 0.0], dtype=np.float32)
+            yaw_shift = float(np.clip(head_forward[1], -1.0, 1.0)) * 40.0
+            pitch_shift = float(np.clip(head_forward[2], -1.0, 1.0)) * 30.0
+            stereo_shift = eye_sign * 12.0
             # Left hand position (indices 0-6: xyz + quat)
-            lx = int(w * 0.3 + action[0] * 50)
-            ly = int(h * 0.5 + action[1] * 50)
+            lx = int(w * 0.3 + action[0] * 50 + yaw_shift + stereo_shift)
+            ly = int(h * 0.5 + action[1] * 50 - pitch_shift)
             # Draw left hand marker
             if 0 <= lx < w and 0 <= ly < h:
                 cv = min(30, w // 8)
@@ -219,13 +248,31 @@ class TelevisionLabEnv(gym.Env):
                 ] = np.array([100, 150, 200], dtype=np.uint8)
 
             # Right hand position
-            rx = int(w * 0.7 + action[7] * 50)
-            ry = int(h * 0.5 + action[8] * 50)
+            rx = int(w * 0.7 + action[7] * 50 + yaw_shift + stereo_shift)
+            ry = int(h * 0.5 + action[8] * 50 - pitch_shift)
             if 0 <= rx < w and 0 <= ry < h:
                 cv = min(30, w // 8)
                 frame[
                     max(0, ry - cv) : min(h, ry + cv), max(0, rx - cv) : min(w, rx + cv)
                 ] = np.array([200, 150, 100], dtype=np.uint8)
+        elif action is not None and len(action) >= 26:
+            left_shoulder = np.asarray(action[0:2], dtype=np.float32)
+            right_shoulder = np.asarray(action[13:15], dtype=np.float32)
+            left_hand = float(action[12])
+            right_hand = float(action[25])
+            lx = int(w * 0.35 + left_shoulder[0] * 40 + eye_sign * 10.0)
+            ly = int(h * 0.48 + left_shoulder[1] * 35)
+            rx = int(w * 0.65 + right_shoulder[0] * 40 + eye_sign * 10.0)
+            ry = int(h * 0.48 + right_shoulder[1] * 35)
+            left_color = np.array([80, 120, 160 + int(np.clip(left_hand, -1.0, 1.0) * 20)], dtype=np.uint8)
+            right_color = np.array([160 + int(np.clip(right_hand, -1.0, 1.0) * 20), 120, 80], dtype=np.uint8)
+            for px, py, color in ((lx, ly, left_color), (rx, ry, right_color)):
+                if 0 <= px < w and 0 <= py < h:
+                    cv = min(26, w // 10)
+                    frame[
+                        max(0, py - cv) : min(h, py + cv),
+                        max(0, px - cv) : min(w, px + cv),
+                    ] = color
 
         return frame
 
@@ -240,8 +287,8 @@ class TelevisionLabEnv(gym.Env):
 
         if frame is None:
             h, w = self.cfg.image_height, self.cfg.image_width
-            left = self._generate_synthetic_frame(h, w, self._state)
-            right = left.copy()
+            left = self._generate_synthetic_frame(h, w, self._state, eye_sign=1.0)
+            right = self._generate_synthetic_frame(h, w, self._state, eye_sign=-1.0)
             return left, right
 
         frame = self._to_hwc_uint8(frame)
@@ -268,7 +315,8 @@ class TelevisionLabEnv(gym.Env):
         left, right = self._extract_images(raw_obs)
         left = self._resize_rgb(left)
         right = self._resize_rgb(right)
-        self._state = self._flatten_state(raw_obs)
+        if raw_obs is not None:
+            self._state = self._flatten_state(raw_obs)
         return {
             "observation": {
                 "image": {
@@ -284,12 +332,46 @@ class TelevisionLabEnv(gym.Env):
     ) -> tuple:
         super().reset(seed=seed)
         self.step_count = 0
+        self._state = np.zeros(self.cfg.state_dim, dtype=np.float32)
+        self._last_action = np.zeros(self.cfg.action_dim, dtype=np.float32)
+        self._head_rmat = np.eye(3, dtype=np.float32)
+        self._h1_qpos = np.zeros(51, dtype=np.float32)
         if self.base_env is not None:
             raw_obs, _ = self.base_env.reset(seed=seed, options=options)
             self._last_raw_obs = raw_obs
             return self._build_obs(raw_obs), {}
         self._last_raw_obs = None
         return self._build_obs(None), {}
+
+    def set_head_rotation(self, head_rmat: Optional[np.ndarray]) -> None:
+        if head_rmat is None:
+            return
+        matrix = np.asarray(head_rmat, dtype=np.float32)
+        if matrix.shape == (3, 3):
+            self._head_rmat = matrix
+
+    def teleop_to_action(
+        self,
+        left_pose: np.ndarray,
+        right_pose: np.ndarray,
+        left_qpos: np.ndarray,
+        right_qpos: np.ndarray,
+    ) -> np.ndarray:
+        if not self.supports_teleop_to_action:
+            raise NotImplementedError(
+                f"{self.cfg.task_id} consumes H1 replay actions, not raw teleop commands."
+            )
+        return assemble_teleop_action(left_pose, right_pose, left_qpos, right_qpos)
+
+    def adapt_action(self, action: np.ndarray) -> np.ndarray:
+        action = np.asarray(action, dtype=np.float32).reshape(-1)
+        if self.cfg.scene_mode == "h1":
+            return adapt_h1_action(action)
+        if action.shape[0] != self.cfg.action_dim:
+            raise ValueError(
+                f"{self.cfg.task_id} expects {self.cfg.action_dim}D teleop actions, got {action.shape[0]}."
+            )
+        return action
 
     def _map_action(self, action: np.ndarray) -> np.ndarray:
         if self.base_env is None:
@@ -309,10 +391,16 @@ class TelevisionLabEnv(gym.Env):
         return mapped
 
     def step(self, action: np.ndarray) -> tuple:
-        action = np.asarray(action, dtype=np.float32).reshape(-1)
+        action = self.adapt_action(action)
         self.step_count += 1
+        self._last_action = action.copy()
 
         if self.base_env is None:
+            self._state.fill(0.0)
+            n = min(self._state.shape[0], action.shape[0])
+            self._state[:n] = action[:n]
+            if self.cfg.scene_mode == "h1":
+                self._h1_qpos = h1_action_to_qpos(action)
             obs = self._build_obs(None)
             terminated = False
             truncated = self.step_count >= self.max_steps
@@ -357,10 +445,36 @@ class TelevisionLabEnv(gym.Env):
 
 
 def register_television_lab():
-    """Register television_lab environment in Gymnasium."""
+    """Register the teleoperation collection environment in Gymnasium."""
     gym.register(
-        id="television_lab",
+        id=TELEOP_TASK_ID,
         entry_point="tv_isaaclab.tasks.television_lab:TelevisionLabEnv",
         max_episode_steps=1000,
-        kwargs={"cfg": TelevisionLabConfig()},
+        kwargs={
+            "cfg": TelevisionLabConfig(
+                action_dim=TELEOP_ACTION_DIM,
+                state_dim=TELEOP_ACTION_DIM,
+                scene_mode="teleop",
+                task_id=TELEOP_TASK_ID,
+                state_schema=TELEOP_STATE_SCHEMA,
+            )
+        },
+    )
+
+
+def register_television_h1():
+    """Register the H1 replay/policy-consumption environment in Gymnasium."""
+    gym.register(
+        id=H1_TASK_ID,
+        entry_point="tv_isaaclab.tasks.television_lab:TelevisionLabEnv",
+        max_episode_steps=1000,
+        kwargs={
+            "cfg": TelevisionLabConfig(
+                action_dim=H1_ACTION_DIM,
+                state_dim=H1_ACTION_DIM,
+                scene_mode="h1",
+                task_id=H1_TASK_ID,
+                state_schema=H1_STATE_SCHEMA,
+            )
+        },
     )

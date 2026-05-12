@@ -1,8 +1,11 @@
 import importlib
+import os
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
 import numpy as np
+
+from .contracts import infer_action_schema, infer_task_from_schemas
 
 
 def _try_import_isaaclab_tasks():
@@ -94,6 +97,7 @@ class IsaacLabEnvBridge:
         import gymnasium as gym
 
         _try_import_isaaclab_tasks()
+        self.task = task
 
         try:
             from isaaclab_tasks.utils import parse_env_cfg
@@ -131,6 +135,21 @@ class IsaacLabEnvBridge:
                 "policy",
             ]
         )
+        self.supports_teleop_to_action = bool(
+            getattr(self._env_target, "supports_teleop_to_action", False)
+        )
+        self.is_real_env = bool(getattr(self._env_target, "is_real_env", False))
+        self.action_schema = getattr(
+            self._env_target,
+            "action_schema",
+            infer_action_schema(self.action_dim),
+        )
+        self.state_schema = getattr(
+            self._env_target,
+            "state_schema",
+            f"unknown_state_dim_{self.action_dim}",
+        )
+        self.task_contract = infer_task_from_schemas(self.action_schema, self.action_dim, fallback=task)
 
     @property
     def action_dim(self) -> int:
@@ -143,8 +162,31 @@ class IsaacLabEnvBridge:
         obs, _ = self.env.reset()
         return self._build_obs_pack(obs)
 
-    def step(self, action: np.ndarray) -> ObsPack:
-        action = np.asarray(action, dtype=np.float32)
+    @property
+    def _env_target(self):
+        return getattr(self.env, "unwrapped", self.env)
+
+    def teleop_to_action(
+        self,
+        left_pose: np.ndarray,
+        right_pose: np.ndarray,
+        left_qpos: np.ndarray,
+        right_qpos: np.ndarray,
+    ) -> np.ndarray:
+        if not self.supports_teleop_to_action:
+            raise NotImplementedError(
+                "This environment expects already-assembled actions."
+            )
+        return self._env_target.teleop_to_action(
+            left_pose,
+            right_pose,
+            left_qpos,
+            right_qpos,
+        )
+
+    def step(self, action: np.ndarray, **_: Any) -> ObsPack:
+        self._apply_runtime_metadata(**_)
+        action = self._adapt_action(action)
         if action.ndim == 1:
             action = action[None, :]
         obs, _, terminated, truncated, _ = self.env.step(action)
@@ -154,6 +196,17 @@ class IsaacLabEnvBridge:
 
     def close(self):
         self.env.close()
+
+    def _apply_runtime_metadata(self, **kwargs: Any) -> None:
+        head_rmat = kwargs.get("head_rmat")
+        if head_rmat is not None and hasattr(self._env_target, "set_head_rotation"):
+            self._env_target.set_head_rotation(head_rmat)
+
+    def _adapt_action(self, action: np.ndarray) -> np.ndarray:
+        action = np.asarray(action, dtype=np.float32)
+        if hasattr(self._env_target, "adapt_action"):
+            return np.asarray(self._env_target.adapt_action(action), dtype=np.float32)
+        return action
 
     def _find_by_keys(
         self, obs: Any, key_candidates: Iterable[str]

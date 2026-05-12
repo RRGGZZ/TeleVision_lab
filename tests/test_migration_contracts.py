@@ -1,0 +1,112 @@
+import inspect
+import sys
+import unittest
+from pathlib import Path
+
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+
+class MigrationContractTests(unittest.TestCase):
+    def test_env_bridge_imports_os_for_real_isaaclab_path(self):
+        import tv_isaaclab.env_bridge as env_bridge
+
+        self.assertTrue(
+            hasattr(env_bridge, "os"),
+            "IsaacLabEnvBridge uses os.environ on the real Isaac Lab path and must import os.",
+        )
+
+    def test_env_bridge_step_accepts_optional_runtime_metadata(self):
+        from tv_isaaclab.env_bridge import IsaacLabEnvBridge
+
+        signature = inspect.signature(IsaacLabEnvBridge.step)
+        self.assertTrue(
+            any(
+                parameter.kind == inspect.Parameter.VAR_KEYWORD
+                for parameter in signature.parameters.values()
+            )
+            or "head_rmat" in signature.parameters,
+            "IsaacLabEnvBridge.step must accept optional teleoperation metadata such as head_rmat.",
+        )
+
+    def test_env_bridge_declares_teleop_capability_contract(self):
+        source = (ROOT_DIR / "tv_isaaclab" / "env_bridge.py").read_text(encoding="utf-8")
+        self.assertIn(
+            "supports_teleop_to_action",
+            source,
+            "The bridge should declare whether it natively converts teleop signals to env actions.",
+        )
+        self.assertIn(
+            "set_head_rotation",
+            source,
+            "The bridge should pass teleoperation head-pose metadata into compatible environments.",
+        )
+        self.assertIn(
+            "action_schema",
+            source,
+            "The bridge should expose the environment action schema to downstream tooling.",
+        )
+        self.assertIn(
+            "task_contract",
+            source,
+            "The bridge should surface its resolved task contract for replay/training tooling.",
+        )
+
+    def test_deploy_script_has_no_legacy_state_action_shape_constants(self):
+        source = (ROOT_DIR / "scripts" / "deploy_sim.py").read_text(encoding="utf-8")
+        legacy_fragments = (
+            "action_dim = 28",
+            "view((1, 26))",
+            "view((1, 2, 3, 480, 640))",
+        )
+        for fragment in legacy_fragments:
+            self.assertNotIn(
+                fragment,
+                source,
+                f"Legacy IsaacGym-era shape constant still present: {fragment}",
+            )
+
+    def test_training_script_has_no_legacy_state_action_shape_constants(self):
+        source = (ROOT_DIR / "act" / "imitate_episodes.py").read_text(encoding="utf-8")
+        legacy_fragments = (
+            "state_dim = 26",
+            "action_dim = 28",
+        )
+        for fragment in legacy_fragments:
+            self.assertNotIn(
+                fragment,
+                source,
+                f"Legacy IsaacGym-era shape constant still present: {fragment}",
+            )
+
+    def test_task_does_not_default_to_unrelated_cartpole_scene(self):
+        source = (ROOT_DIR / "tv_isaaclab" / "tasks" / "television_lab.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn(
+            "Isaac-Cartpole-Direct-v0",
+            source,
+            "television_lab should not silently bind to an unrelated Cartpole task.",
+        )
+        self.assertIn(
+            "if raw_obs is not None:",
+            source,
+            "Synthetic fallback should preserve teleop-driven state instead of zeroing it out.",
+        )
+
+    def test_package_prefers_real_task_registration_before_fallback(self):
+        source = (ROOT_DIR / "tv_isaaclab" / "__init__.py").read_text(encoding="utf-8")
+        self.assertIn("television_lab_real", source)
+        self.assertIn("fallback_adapter", source)
+        self.assertIn("REGISTERED_TASK_BACKEND", source)
+
+    def test_bootstrap_enables_cameras_before_launch(self):
+        source = (ROOT_DIR / "tv_isaaclab" / "bootstrap.py").read_text(encoding="utf-8")
+        self.assertIn("_configure_camera_mode()", source)
+        self.assertIn('os.environ.setdefault("ENABLE_CAMERAS", "1")', source)
+
+
+if __name__ == "__main__":
+    unittest.main()

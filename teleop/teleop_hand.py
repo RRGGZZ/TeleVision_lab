@@ -28,6 +28,7 @@ from tv_isaaclab import (  # noqa: E402
     IsaacLabEnvBridge,
     EpisodeRecorder,
 )
+from tv_isaaclab.contracts import TELEOP_TASK_ID, expand_inspire_driver_qpos
 
 
 def _resolve_local_path(path_str: str) -> Path:
@@ -83,32 +84,7 @@ class VuerTeleop:
 
     @staticmethod
     def _expand_inspire_qpos(qpos):
-        """Expand 6-dim driver joints into legacy 12-dim hand command layout."""
-        q = np.asarray(qpos, dtype=np.float32).reshape(-1)
-        if q.shape[0] == 12:
-            return q
-        if q.shape[0] != 6:
-            raise ValueError(f"Unexpected retarget qpos dim: {q.shape[0]} (expected 6 or 12)")
-
-        index_prox, middle_prox, pinky_prox, ring_prox, thumb_yaw, thumb_pitch = q.tolist()
-        # Layout matches previous 12-joint order used by action mapping.
-        return np.array(
-            [
-                index_prox,
-                index_prox,
-                middle_prox,
-                middle_prox,
-                pinky_prox,
-                pinky_prox,
-                ring_prox,
-                ring_prox,
-                thumb_yaw,
-                thumb_pitch,
-                1.6 * thumb_pitch,
-                2.4 * thumb_pitch,
-            ],
-            dtype=np.float32,
-        )
+        return expand_inspire_driver_qpos(qpos)
 
     def step(self):
         head_mat, left_wrist_mat, right_wrist_mat, left_hand_mat, right_hand_mat = self.processor.process(self.tv)
@@ -183,7 +159,7 @@ def _fit_action_dim(action, expected_dim):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="VisionPro teleoperation on Isaac Lab")
-    parser.add_argument("--task", type=str, default="television_lab", help="Isaac Lab task name")
+    parser.add_argument("--task", type=str, default=TELEOP_TASK_ID, help="Isaac Lab task name")
     parser.add_argument("--retarget_config", type=str, default="inspire_hand.yml", help="Retargeting config")
     parser.add_argument(
         "--action_mapping",
@@ -231,7 +207,7 @@ if __name__ == '__main__':
             loop_start = time.perf_counter()
             head_rmat, left_pose, right_pose, left_qpos, right_qpos = teleoperator.step()
             raw_action = mapper.assemble(left_pose, right_pose, left_qpos, right_qpos)
-            if env.supports_teleop_to_action:
+            if getattr(env, "supports_teleop_to_action", False):
                 action = env.teleop_to_action(left_pose, right_pose, left_qpos, right_qpos)
             else:
                 action = _fit_action_dim(raw_action, env.action_dim)

@@ -38,8 +38,14 @@ def _configure_memory_mode(args):
         os.environ.setdefault("CARB_GPU_MEMORY", "4096")
 
 
+def _configure_camera_mode():
+    """Enable camera pipelines before AppLauncher constructs the simulator."""
+    os.environ.setdefault("ENABLE_CAMERAS", "1")
+
+
 def launch_simulation_app(args):
     _configure_memory_mode(args)
+    _configure_camera_mode()
 
     app_launcher_cls = _import_app_launcher()
     app_launcher = app_launcher_cls(args)

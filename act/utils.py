@@ -1,18 +1,62 @@
-import numpy as np
-import torch
 import os
-import h5py
-from torch.utils.data import TensorDataset, DataLoader
-import time 
-import IPython
-e = IPython.embed
+import sys
+import time
 from pathlib import Path
 
+import h5py
+import IPython
+import numpy as np
+import torch
+from torch.utils.data import DataLoader, TensorDataset
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from tv_isaaclab.contracts import infer_task_from_schemas
+
+e = IPython.embed
+
+
+def _processed_episode_sort_key(path_like):
+    stem = Path(path_like).stem
+    suffix = stem.split("processed_episode_")[-1]
+    try:
+        return (0, int(suffix))
+    except ValueError:
+        return (1, stem)
+
+
+def list_processed_episode_paths(dataset_dir):
+    dataset_dir = Path(dataset_dir)
+    episode_paths = sorted(dataset_dir.glob("processed_episode_*.hdf5"), key=_processed_episode_sort_key)
+    if not episode_paths:
+        raise FileNotFoundError(f"No processed episodes found under {dataset_dir}")
+    return episode_paths
+
+
+def _read_episode_metadata(root):
+    action_schema = root.attrs.get("action_schema")
+    state_schema = root.attrs.get("state_schema")
+    if isinstance(action_schema, bytes):
+        action_schema = action_schema.decode("utf-8")
+    if isinstance(state_schema, bytes):
+        state_schema = state_schema.decode("utf-8")
+    action_dim = int(root["qpos_action"].shape[-1])
+    state_dim = int(root["observation.state"].shape[-1])
+    return {
+        "action_schema": action_schema,
+        "state_schema": state_schema,
+        "action_dim": action_dim,
+        "state_dim": state_dim,
+        "task": infer_task_from_schemas(action_schema, action_dim),
+    }
+
 class EpisodicDataset(torch.utils.data.Dataset):
-    def __init__(self, episode_ids, dataset_dir, camera_names, norm_stats, episode_len, history_stack=0):
+    def __init__(self, episode_paths, camera_names, norm_stats, episode_len, history_stack=0):
         super(EpisodicDataset).__init__()
-        self.episode_ids = episode_ids
-        self.dataset_dir = dataset_dir
+        self.episode_paths = [Path(path) for path in episode_paths]
+        self.dataset_dir = str(self.episode_paths[0].parent) if self.episode_paths else ""
         self.camera_names = camera_names
         self.norm_stats = norm_stats
         self.is_sim = None
@@ -31,13 +75,15 @@ class EpisodicDataset(torch.utils.data.Dataset):
         for cam_name in self.camera_names:
             self.image_dict[cam_name] = []
         self.actions = []
+        self.metadata = []
 
-        for i, episode_id in enumerate(self.episode_ids):
-            self.dataset_paths.append(os.path.join(self.dataset_dir, f'processed_episode_{episode_id}.hdf5'))
-            root = h5py.File(self.dataset_paths[i], 'r')
+        for episode_path in self.episode_paths:
+            self.dataset_paths.append(str(episode_path))
+            root = h5py.File(str(episode_path), 'r')
             self.roots.append(root)
             self.is_sims.append(root.attrs['sim'])
             self.original_action_shapes.append(root[action_str].shape)
+            self.metadata.append(_read_episode_metadata(root))
 
             self.states.append(np.array(root['observation.state']))
             for cam_name in self.camera_names:
@@ -45,6 +91,23 @@ class EpisodicDataset(torch.utils.data.Dataset):
             self.actions.append(np.array(root[action_str]))
 
         self.is_sim = self.is_sims[0]
+        self.task = self.metadata[0]["task"]
+        self.action_schema = self.metadata[0]["action_schema"]
+        self.state_schema = self.metadata[0]["state_schema"]
+        self.action_dim = self.metadata[0]["action_dim"]
+        self.state_dim = self.metadata[0]["state_dim"]
+
+        for meta in self.metadata[1:]:
+            if meta["action_dim"] != self.action_dim or meta["state_dim"] != self.state_dim:
+                raise ValueError(
+                    "Processed episodes mix different action/state dimensions; "
+                    f"got {(self.action_dim, self.state_dim)} and {(meta['action_dim'], meta['state_dim'])}."
+                )
+            if meta["task"] != self.task:
+                raise ValueError(
+                    "Processed episodes mix different task contracts; "
+                    f"got {self.task!r} and {meta['task']!r}."
+                )
 
         self.episode_len = episode_len
         self.cumulative_len = np.cumsum(self.episode_len)
@@ -123,15 +186,29 @@ class EpisodicDataset(torch.utils.data.Dataset):
 
 
 def get_norm_stats(dataset_dir, num_episodes):
+    del num_episodes
     action_str = 'qpos_action'
     all_qpos_data = []
     all_action_data = []
     all_episode_len = []
-    for episode_idx in range(num_episodes):
-        dataset_path = os.path.join(dataset_dir, f'processed_episode_{episode_idx}.hdf5')
-        with h5py.File(dataset_path, 'r') as root:
+    metadata = None
+    dataset_paths = list_processed_episode_paths(dataset_dir)
+    for dataset_path in dataset_paths:
+        with h5py.File(str(dataset_path), 'r') as root:
             qpos = root['observation.state'][()]
             action = root[action_str][()]
+            episode_meta = _read_episode_metadata(root)
+            if metadata is None:
+                metadata = episode_meta
+            elif (
+                episode_meta["action_dim"] != metadata["action_dim"]
+                or episode_meta["state_dim"] != metadata["state_dim"]
+                or episode_meta["task"] != metadata["task"]
+            ):
+                raise ValueError(
+                    "Processed dataset mixes incompatible schemas or dimensions; "
+                    f"got {metadata} and {episode_meta}."
+                )
         all_qpos_data.append(torch.from_numpy(qpos))
         all_action_data.append(torch.from_numpy(action))
         all_episode_len.append(len(qpos))
@@ -149,15 +226,20 @@ def get_norm_stats(dataset_dir, num_episodes):
     qpos_std = all_qpos_data.std(dim=0, keepdim=True)
     qpos_std = torch.clip(qpos_std, 1e-2, np.inf) # clipping
 
-    stats = {"action_mean": action_mean.numpy().squeeze(), "action_std": action_std.numpy().squeeze(),
-             "qpos_mean": qpos_mean.numpy().squeeze(), "qpos_std": qpos_std.numpy().squeeze(),
-             "example_qpos": qpos}
+    stats = {
+        "action_mean": action_mean.numpy().squeeze(),
+        "action_std": action_std.numpy().squeeze(),
+        "qpos_mean": qpos_mean.numpy().squeeze(),
+        "qpos_std": qpos_std.numpy().squeeze(),
+        "example_qpos": qpos,
+    }
+    if metadata is not None:
+        stats.update(metadata)
 
     return stats, all_episode_len
 
 def find_all_processed_episodes(path):
-    episodes = [f for f in os.listdir(path)]
-    return episodes
+    return [path.name for path in list_processed_episode_paths(path)]
 
 def BatchSampler(batch_size, episode_len_l, sample_weights=None):
     sample_probs = np.array(sample_weights) / np.sum(sample_weights) if sample_weights is not None else None
@@ -173,14 +255,18 @@ def BatchSampler(batch_size, episode_len_l, sample_weights=None):
 def load_data(dataset_dir, camera_names, batch_size_train, batch_size_val):
     print(f'\nData from: {dataset_dir}\n')
 
-    all_eps = find_all_processed_episodes(dataset_dir)
-    num_episodes = len(all_eps)
+    episode_paths = list_processed_episode_paths(dataset_dir)
+    num_episodes = len(episode_paths)
     
     # obtain train test split
     train_ratio = 0.99
     shuffled_indices = np.random.permutation(num_episodes)
-    train_indices = shuffled_indices[:int(train_ratio * num_episodes)]
-    val_indices = shuffled_indices[int(train_ratio * num_episodes):]
+    train_cutoff = int(train_ratio * num_episodes)
+    train_cutoff = min(max(train_cutoff, 1), num_episodes)
+    train_indices = shuffled_indices[:train_cutoff]
+    val_indices = shuffled_indices[train_cutoff:]
+    if len(val_indices) == 0:
+        val_indices = train_indices[:1]
     print(f"Train episodes: {len(train_indices)}, Val episodes: {len(val_indices)}")
     # obtain normalization stats for qpos and action
     norm_stats, all_episode_len = get_norm_stats(dataset_dir, num_episodes)
@@ -191,12 +277,22 @@ def load_data(dataset_dir, camera_names, batch_size_train, batch_size_val):
     batch_sampler_val = BatchSampler(batch_size_val, val_episode_len_l, None)
 
     # construct dataset and dataloader
-    train_dataset = EpisodicDataset(train_indices, dataset_dir, camera_names, norm_stats, train_episode_len_l)
-    val_dataset = EpisodicDataset(val_indices, dataset_dir, camera_names, norm_stats, val_episode_len_l)
+    train_paths = [episode_paths[i] for i in train_indices]
+    val_paths = [episode_paths[i] for i in val_indices]
+    train_dataset = EpisodicDataset(train_paths, camera_names, norm_stats, train_episode_len_l)
+    val_dataset = EpisodicDataset(val_paths, camera_names, norm_stats, val_episode_len_l)
     train_dataloader = DataLoader(train_dataset, batch_sampler=batch_sampler_train, pin_memory=True, num_workers=24, prefetch_factor=2)
     val_dataloader = DataLoader(val_dataset, batch_sampler=batch_sampler_val, pin_memory=True, num_workers=16, prefetch_factor=2)
 
-    return train_dataloader, val_dataloader, norm_stats, train_dataset.is_sim
+    dataset_meta = {
+        "task": train_dataset.task,
+        "action_schema": train_dataset.action_schema,
+        "state_schema": train_dataset.state_schema,
+        "action_dim": train_dataset.action_dim,
+        "state_dim": train_dataset.state_dim,
+    }
+
+    return train_dataloader, val_dataloader, norm_stats, train_dataset.is_sim, dataset_meta
 
 def sample_box_pose():
     x_range = [0.0, 0.2]

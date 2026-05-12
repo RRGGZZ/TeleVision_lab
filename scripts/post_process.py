@@ -15,6 +15,13 @@ from pytransform3d import rotations
 import concurrent.futures
 from pathlib import Path
 import argparse
+import sys
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
+from tv_isaaclab.contracts import H1_ACTION_SCHEMA, H1_STATE_SCHEMA, TELEOP_CMD_SCHEMA
 
 def load_svo(path, crop_size_h=240, crop_size_w=320):
     input_file = path + ".svo"
@@ -126,6 +133,9 @@ def process_episode(file_name, ep):
         hf.create_dataset('qpos_action', data=qpos_actions.astype(np.float32))
         hf.attrs['sim'] = False
         hf.attrs['init_action'] = cmds[0].astype(np.float32)
+        hf.attrs['action_schema'] = H1_ACTION_SCHEMA
+        hf.attrs['cmd_schema'] = TELEOP_CMD_SCHEMA
+        hf.attrs['state_schema'] = H1_STATE_SCHEMA
         
         print("Time to save dataset: ", time.time() - start)
 

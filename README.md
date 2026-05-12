@@ -113,6 +113,23 @@ cd scripts
 python test_integration.py --task television_h1
 ```
 
+Server-side headless full-run smoke test:
+
+```bash
+cd scripts
+python headless_full_run.py --tasks television_lab,television_h1 --memory_mode low --headless
+```
+
+This script runs the main non-interactive paths end-to-end for each task:
+
+- environment creation and reset/step
+- episode recording to HDF5
+- replay through the bridge
+- dataset loading smoke test
+- dummy JIT policy deployment smoke test
+
+The outputs are written under `data/headless_runs/` by default.
+
 #### 2. Inspect the Schema
 
 Quick probe without full Isaac Lab app launch:

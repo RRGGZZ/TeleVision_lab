@@ -98,6 +98,13 @@ class ActionContractTests(unittest.TestCase):
         self.assertIn('glob("processed_episode_*.hdf5")', utils_source)
         self.assertIn("infer_task_from_schemas", utils_source)
 
+    def test_headless_full_run_script_exercises_dataset_and_deploy_paths(self):
+        source = (ROOT_DIR / "scripts" / "headless_full_run.py").read_text(encoding="utf-8")
+        self.assertIn("DummyChunkPolicy", source)
+        self.assertIn("EpisodicDataset", source)
+        self.assertIn("infer_task_from_episode", source)
+        self.assertIn("Player(task=task, show_plot=False)", source)
+
 
 if __name__ == "__main__":
     unittest.main()

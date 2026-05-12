@@ -107,6 +107,11 @@ class MigrationContractTests(unittest.TestCase):
         self.assertIn("_configure_camera_mode()", source)
         self.assertIn('os.environ.setdefault("ENABLE_CAMERAS", "1")', source)
 
+    def test_headless_smoke_script_defaults_to_headless_app_launcher(self):
+        source = (ROOT_DIR / "scripts" / "headless_full_run.py").read_text(encoding="utf-8")
+        self.assertIn("parser.set_defaults(headless=True)", source)
+        self.assertIn("--memory_mode low --headless", (ROOT_DIR / "README.md").read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

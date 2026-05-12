@@ -10,9 +10,11 @@ import numpy as np
 
 from tv_isaaclab.contracts import (
     H1_ACTION_DIM,
+    H1_ACTION_SCHEMA,
     H1_STATE_SCHEMA,
     H1_TASK_ID,
     TELEOP_ACTION_DIM,
+    TELEOP_CMD_SCHEMA,
     TELEOP_STATE_SCHEMA,
     TELEOP_TASK_ID,
     adapt_h1_action,
@@ -51,7 +53,10 @@ class TelevisionLabEnv(gym.Env):
         self.render_mode = render_mode
         self.step_count = 0
         self.max_steps = 1000
+        self.is_real_env = False
         self.supports_teleop_to_action = self.cfg.scene_mode == "teleop"
+        self.action_schema = TELEOP_CMD_SCHEMA if self.cfg.scene_mode == "teleop" else H1_ACTION_SCHEMA
+        self.state_schema = self.cfg.state_schema
 
         self.action_space = spaces.Box(
             low=-1.0,

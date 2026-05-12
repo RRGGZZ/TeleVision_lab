@@ -97,6 +97,8 @@ class ActionContractTests(unittest.TestCase):
         utils_source = (ROOT_DIR / "act" / "utils.py").read_text(encoding="utf-8")
         self.assertIn('glob("processed_episode_*.hdf5")', utils_source)
         self.assertIn("infer_task_from_schemas", utils_source)
+        self.assertIn("def __len__(self):", utils_source)
+        self.assertIn("return int(self.cumulative_len[-1])", utils_source)
 
     def test_headless_full_run_script_exercises_dataset_and_deploy_paths(self):
         source = (ROOT_DIR / "scripts" / "headless_full_run.py").read_text(encoding="utf-8")

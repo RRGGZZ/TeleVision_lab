@@ -114,8 +114,10 @@ class EpisodicDataset(torch.utils.data.Dataset):
 
         # self.__getitem__(0) # initialize self.is_sim
 
-    # def __len__(self):
-    #     return len(self.episode_ids)
+    def __len__(self):
+        if len(self.cumulative_len) == 0:
+            return 0
+        return int(self.cumulative_len[-1])
 
     def _locate_transition(self, index):
         assert index < self.cumulative_len[-1]

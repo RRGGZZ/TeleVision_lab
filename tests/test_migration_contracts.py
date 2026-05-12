@@ -95,6 +95,9 @@ class MigrationContractTests(unittest.TestCase):
             source,
             "Synthetic fallback should preserve teleop-driven state instead of zeroing it out.",
         )
+        self.assertIn('self.is_real_env = False', source)
+        self.assertIn("self.action_schema =", source)
+        self.assertIn("self.state_schema =", source)
 
     def test_package_prefers_real_task_registration_before_fallback(self):
         source = (ROOT_DIR / "tv_isaaclab" / "__init__.py").read_text(encoding="utf-8")

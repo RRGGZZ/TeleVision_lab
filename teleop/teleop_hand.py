@@ -21,7 +21,7 @@ def _load_retargeting_config():
             "dex_retargeting is required for teleoperation hand retargeting. "
             f"Current Python version: {version}. "
             "dex-retargeting currently supports Python < 3.13, so please use Python 3.11 or 3.12 "
-            "and install it with: pip install git+https://github.com/dexsuite/dex-retargeting.git@main"
+            "and install the NumPy 1.x compatible release with: pip install 'dex-retargeting<0.5.0'"
         )
 
     from dex_retargeting.retargeting_config import RetargetingConfig
@@ -175,6 +175,23 @@ def _fit_action_dim(action, expected_dim):
     return resized
 
 
+def _validate_vuer_certificate_files(ngrok: bool) -> None:
+    if ngrok:
+        return
+    cert_path = TELEOP_DIR / "cert.pem"
+    key_path = TELEOP_DIR / "key.pem"
+    missing = [path.name for path in (cert_path, key_path) if not path.exists()]
+    if not missing:
+        return
+    raise FileNotFoundError(
+        "Vuer local HTTPS mode requires teleop/cert.pem and teleop/key.pem. "
+        f"Missing: {', '.join(missing)}. "
+        "Generate them from the teleop directory with: "
+        "mkcert -install && mkcert -cert-file cert.pem -key-file key.pem localhost 127.0.0.1 <your-server-ip>. "
+        "Alternatively run with --ngrok if you are using an ngrok HTTPS tunnel."
+    )
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="VisionPro teleoperation on Isaac Lab")
     parser.add_argument("--task", type=str, default=TELEOP_TASK_ID, help="Isaac Lab task name")
@@ -198,6 +215,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     simulation_app = launch_simulation_app(args)
+    _validate_vuer_certificate_files(args.ngrok)
 
     teleoperator = VuerTeleop(
         args.retarget_config,

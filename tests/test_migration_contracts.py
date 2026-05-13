@@ -120,6 +120,18 @@ class MigrationContractTests(unittest.TestCase):
         self.assertIn("dex_retargeting is required", source)
         self.assertIn("Python 3.11 or 3.12", source)
         self.assertIn("Python < 3.13", source)
+        self.assertIn("dex-retargeting<0.5.0", source)
+        self.assertIn("_validate_vuer_certificate_files", source)
+        self.assertIn("mkcert -install", source)
+
+    def test_requirements_pin_dex_retargeting_to_numpy1_compatible_line(self):
+        requirements = (ROOT_DIR / "requirements.txt").read_text(encoding="utf-8")
+        install_script = (ROOT_DIR / "install_deps.sh").read_text(encoding="utf-8")
+        self.assertIn("dex-retargeting>=0.4.5,<0.5.0", requirements)
+        self.assertIn("dex-retargeting>=0.4.5,<0.5.0", install_script)
+        self.assertIn("packaging==23.0", requirements)
+        self.assertIn("wheel<0.47", requirements)
+        self.assertIn("wheel<0.47", install_script)
 
 
 if __name__ == "__main__":

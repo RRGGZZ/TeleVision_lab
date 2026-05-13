@@ -31,19 +31,20 @@ fi
 
 echo ""
 echo "[1/3] Installing main dependencies..."
-pip install --upgrade pip setuptools wheel
+pip install --upgrade pip setuptools
+pip install "packaging==23.0" "wheel<0.47"
 pip install -r requirements.txt
 
 echo ""
-echo "[2/3] Installing dex-retargeting from GitHub (Python 3.11 / 3.12 compatible)..."
-# dex-retargeting 0.5.0 supports Python < 3.13
-# Install from GitHub main branch for best compatibility
-if pip install git+https://github.com/dexsuite/dex-retargeting.git@main; then
+echo "[2/3] Installing dex-retargeting NumPy 1.x compatible release..."
+# dex-retargeting 0.5.x requires NumPy 2.x, which conflicts with Isaac Lab
+# environments that pin NumPy 1.x. Keep this on the 0.4.x line.
+if pip install "dex-retargeting>=0.4.5,<0.5.0"; then
     echo "[✓] dex-retargeting installed successfully"
 else
     echo "[!] dex-retargeting installation failed"
     echo "    This is needed for hand retargeting/IK"
-    echo "    Try manually: pip install git+https://github.com/dexsuite/dex-retargeting.git@main"
+    echo "    Try manually: pip install 'dex-retargeting>=0.4.5,<0.5.0'"
 fi
 
 echo ""

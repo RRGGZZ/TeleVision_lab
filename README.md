@@ -45,8 +45,10 @@ For Python 3.11 or 3.12 setups such as `television_lab`, see [SETUP_PYTHON311.md
 
 Important differences:
 
-- `dex-retargeting` is installed from GitHub
+- `dex-retargeting` is pinned to `<0.5.0` so it remains compatible with NumPy 1.x
 - `numpy` is constrained to `<2.0` for Isaac Lab compatibility
+- `packaging` is pinned to `23.0` because Isaac Sim 5.1 requires that exact version
+- `wheel` is pinned below `0.47` because newer wheel releases require `packaging>=24`
 - `gymnasium>=0.29.1` is required
 - `dex-retargeting` currently does not support Python 3.13, so teleoperation should be run under Python 3.11 or 3.12
 - quick setup script: `bash install_deps.sh`
@@ -85,6 +87,15 @@ For Quest local streaming, see the upstream Open-TeleVision discussion:
 - [Issue #12](https://github.com/OpenTeleVision/TeleVision/issues/12#issue-2401541144)
 
 For Vision Pro over local HTTPS, you still need to provision certificates in `teleop/` and open the streaming port. The original Open-TeleVision workflow is preserved here.
+
+From the `teleop/` directory, generate local HTTPS certificates with:
+
+```bash
+mkcert -install
+mkcert -cert-file cert.pem -key-file key.pem localhost 127.0.0.1 <your-server-ip>
+```
+
+If you are using ngrok, run teleoperation with `--ngrok` instead of local certificate files.
 
 ### Network Streaming
 

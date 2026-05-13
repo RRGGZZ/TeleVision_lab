@@ -132,6 +132,13 @@ cd scripts
 python headless_full_run.py --tasks television_lab,television_h1 --memory_mode low --headless
 ```
 
+When launching through Isaac Lab, keep `--device` for Isaac Lab's simulator
+device and use `--policy_device` only for the PyTorch dataset/deploy smoke path:
+
+```bash
+python headless_full_run.py --tasks television_lab,television_h1 --memory_mode low --headless --device cuda:0 --policy_device cuda
+```
+
 This script runs the main non-interactive paths end-to-end for each task:
 
 - environment creation and reset/step

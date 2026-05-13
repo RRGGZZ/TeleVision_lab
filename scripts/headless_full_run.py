@@ -50,9 +50,15 @@ def _parse_tasks(raw: str) -> list[str]:
     return tasks
 
 
-def _choose_device(raw: str) -> str:
+def _choose_policy_device(raw: str, sim_device: str | None = None) -> str:
     if raw != "auto":
         return raw
+    if sim_device:
+        normalized = str(sim_device).lower()
+        if normalized.startswith("cpu"):
+            return "cpu"
+        if normalized.startswith("cuda") and torch.cuda.is_available():
+            return "cuda"
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
@@ -229,7 +235,7 @@ def _deploy_policy_smoke(
     }
 
 
-def run_task(task: str, args, output_root: Path, device: str) -> dict:
+def run_task(task: str, args, output_root: Path, policy_device: str) -> dict:
     task_dir = output_root / task
     task_dir.mkdir(parents=True, exist_ok=True)
 
@@ -245,7 +251,7 @@ def run_task(task: str, args, output_root: Path, device: str) -> dict:
         state_dim=dataset_summary["state_dim"],
         image_shape=image_shape,
         action_dim=dataset_summary["action_dim"],
-        device=device,
+        device=policy_device,
         num_queries=args.policy_queries,
     )
     deploy_summary = _deploy_policy_smoke(
@@ -253,7 +259,7 @@ def run_task(task: str, args, output_root: Path, device: str) -> dict:
         episode_path=episode_path,
         norm_stats=norm_stats,
         policy_path=policy_path,
-        device=device,
+        device=policy_device,
         rollout_steps=args.deploy_steps,
         num_queries=args.policy_queries,
     )
@@ -282,20 +288,31 @@ def main() -> int:
     parser.add_argument("--deploy_steps", type=int, default=4)
     parser.add_argument("--policy_queries", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
+    parser.add_argument(
+        "--policy_device",
+        "--policy-device",
+        choices=["auto", "cpu", "cuda"],
+        default="auto",
+        help=(
+            "Device for PyTorch dataset/deploy smoke steps. Isaac Lab's AppLauncher owns "
+            "--device for the simulator."
+        ),
+    )
     add_app_launcher_args(parser)
     parser.set_defaults(headless=True)
     args = parser.parse_args()
 
     tasks = _parse_tasks(args.tasks)
-    device = _choose_device(args.device)
+    policy_device = _choose_policy_device(args.policy_device, sim_device=getattr(args, "device", None))
     output_root = Path(args.output_root).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
 
     simulation_app = launch_simulation_app(args)
     summary = {
         "tasks": tasks,
-        "device": device,
+        "device": policy_device,
+        "policy_device": policy_device,
+        "sim_device": getattr(args, "device", None),
         "output_root": str(output_root),
         "headless": bool(getattr(args, "headless", True)),
         "results": [],
@@ -306,7 +323,7 @@ def main() -> int:
             if hasattr(simulation_app, "is_running") and not simulation_app.is_running():
                 raise RuntimeError("Simulation app exited before the smoke run completed.")
             print(f"\n[HeadlessSmoke] Running task: {task}")
-            task_summary = run_task(task, args, output_root, device)
+            task_summary = run_task(task, args, output_root, policy_device)
             summary["results"].append(task_summary)
             print(
                 f"[HeadlessSmoke] Completed {task}: "

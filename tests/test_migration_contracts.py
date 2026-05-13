@@ -128,7 +128,15 @@ class MigrationContractTests(unittest.TestCase):
         self.assertIn("mkcert -install", source)
         self.assertIn("class MockTeleop", source)
         self.assertIn("--mock_teleop", source)
+        self.assertIn("--require_real_env", source)
+        self.assertIn("Real Isaac Lab backend", source)
         self.assertNotIn("\nRetargetingConfig = _load_retargeting_config()", source)
+
+    def test_runtime_diagnostic_reports_warp_state(self):
+        source = (ROOT_DIR / "scripts" / "diagnose_isaac_runtime.py").read_text(encoding="utf-8")
+        self.assertIn("warp.types", source)
+        self.assertIn("isaaclab_tasks", source)
+        self.assertIn("television_lab_real", source)
 
     def test_requirements_pin_dex_retargeting_to_numpy1_compatible_line(self):
         requirements = (ROOT_DIR / "requirements.txt").read_text(encoding="utf-8")

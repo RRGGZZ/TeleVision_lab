@@ -250,6 +250,12 @@ if __name__ == '__main__':
         action="store_true",
         help="Use deterministic synthetic hand poses instead of VisionPro/Vuer input.",
     )
+    parser.add_argument(
+        "--require_real_env",
+        "--require-real-env",
+        action="store_true",
+        help="Fail if the real Isaac Lab scene is unavailable instead of silently using fallback rendering.",
+    )
     parser.add_argument("--loop_hz", type=float, default=30.0, help="Main control/render loop frequency")
     add_app_launcher_args(parser)
     args = parser.parse_args()
@@ -278,6 +284,16 @@ if __name__ == '__main__':
     except Exception as e:
         simulation_app.close()
         raise RuntimeError(f"Failed to create IsaacLabEnvBridge for task {args.task}: {e}") from e
+    print(f"[*] Real Isaac Lab backend: {env.is_real_env}")
+    if args.require_real_env and not env.is_real_env:
+        env.close()
+        simulation_app.close()
+        raise RuntimeError(
+            "Real Isaac Lab scene is not active, so USD robot/table/cube assets will not be visible. "
+            "Fix the Isaac Lab/Isaac Sim import errors first. For the current warp error, run "
+            "`python scripts/diagnose_isaac_runtime.py` from the repository root and make sure "
+            "`import warp` resolves to NVIDIA Warp with `warp.types.array` available."
+        )
     recorder = EpisodeRecorder() if args.record else None
     env.reset()
 

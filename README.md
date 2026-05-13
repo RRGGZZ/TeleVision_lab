@@ -188,6 +188,29 @@ python teleop_hand.py --task television_lab --mock_teleop --max_steps 60 --recor
 require `teleop/cert.pem` or `teleop/key.pem`. It is intended for checking that
 the teleop action assembly, Isaac Lab bridge, recording, and cleanup paths run.
 
+No-headset visual Isaac scene test:
+
+```bash
+cd teleop
+python teleop_hand.py --task television_lab --mock_teleop --max_steps 600 --require_real_env --memory_mode low
+```
+
+Do not pass `--headless` for this visual test. `--require_real_env` forces the
+script to fail if the real Isaac Lab `television_lab` scene did not load, instead
+of silently falling back to synthetic frames. If the fallback path is active, USD
+assets such as the hands, table, and cube are not present in the Isaac viewport.
+
+If Isaac Lab fails with a Warp error such as `warp.types.array`, diagnose the
+active environment from the repository root:
+
+```bash
+python scripts/diagnose_isaac_runtime.py
+```
+
+That error means the real Isaac Lab extension failed before the TeleVision scene
+could register. Repair the active Isaac Sim / Isaac Lab / NVIDIA Warp package
+set first, then rerun the visual command above.
+
 Batch collection:
 
 ```bash

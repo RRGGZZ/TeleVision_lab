@@ -8,12 +8,6 @@ import importlib.util
 TELEOP_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(TELEOP_DIR))
 
-from TeleVision import OpenTeleVision
-from Preprocessor import VuerPreprocessor
-from constants_vuer import tip_indices
-from pytransform3d import rotations
-
-
 def _load_retargeting_config():
     if importlib.util.find_spec("dex_retargeting") is None:
         version = ".".join(str(part) for part in sys.version_info[:3])
@@ -29,7 +23,14 @@ def _load_retargeting_config():
     return RetargetingConfig
 
 
-RetargetingConfig = _load_retargeting_config()
+def _load_vuer_runtime():
+    from TeleVision import OpenTeleVision
+    from Preprocessor import VuerPreprocessor
+    from constants_vuer import tip_indices
+    from pytransform3d import rotations
+
+    return OpenTeleVision, VuerPreprocessor, tip_indices, rotations
+
 
 import argparse
 import time
@@ -60,6 +61,10 @@ def _resolve_local_path(path_str: str) -> Path:
 
 class VuerTeleop:
     def __init__(self, config_file_path, ngrok=False, vuer_port=8012):
+        OpenTeleVision, VuerPreprocessor, _tip_indices, _rotations = _load_vuer_runtime()
+        self.tip_indices = _tip_indices
+        self.rotations = _rotations
+
         self.resolution = (720, 1280)
         self.crop_size_w = 0
         self.crop_size_h = 0
@@ -91,6 +96,7 @@ class VuerTeleop:
         )
         self.processor = VuerPreprocessor()
 
+        RetargetingConfig = _load_retargeting_config()
         RetargetingConfig.set_default_urdf_dir((ROOT_DIR / "assets").as_posix())
         config_file_path = _resolve_local_path(config_file_path)
         with config_file_path.open('r') as f:
@@ -110,16 +116,44 @@ class VuerTeleop:
         head_rmat = head_mat[:3, :3]
 
         left_pose = np.concatenate([left_wrist_mat[:3, 3] + np.array([-0.6, 0, 1.6]),
-                                    rotations.quaternion_from_matrix(left_wrist_mat[:3, :3])[[1, 2, 3, 0]]])
+                                    self.rotations.quaternion_from_matrix(left_wrist_mat[:3, :3])[[1, 2, 3, 0]]])
         right_pose = np.concatenate([right_wrist_mat[:3, 3] + np.array([-0.6, 0, 1.6]),
-                                     rotations.quaternion_from_matrix(right_wrist_mat[:3, :3])[[1, 2, 3, 0]]])
+                                     self.rotations.quaternion_from_matrix(right_wrist_mat[:3, :3])[[1, 2, 3, 0]]])
         left_qpos = self._expand_inspire_qpos(
-            self.left_retargeting.retarget(left_hand_mat[tip_indices])
+            self.left_retargeting.retarget(left_hand_mat[self.tip_indices])
         )
         right_qpos = self._expand_inspire_qpos(
-            self.right_retargeting.retarget(right_hand_mat[tip_indices])
+            self.right_retargeting.retarget(right_hand_mat[self.tip_indices])
         )
 
+        return head_rmat, left_pose, right_pose, left_qpos, right_qpos
+
+
+class MockTeleop:
+    """Deterministic teleop source for CI/server smoke tests without XR hardware."""
+
+    def __init__(self, height=512, width=512):
+        self.img_height = int(height)
+        self.img_width = int(width)
+        self.img_array = np.zeros((self.img_height, 2 * self.img_width, 3), dtype=np.uint8)
+        self._step_idx = 0
+
+    def step(self):
+        t = np.float32(self._step_idx * 0.05)
+        self._step_idx += 1
+
+        head_rmat = np.eye(3, dtype=np.float32)
+        left_pose = np.array(
+            [-0.35 + 0.03 * np.sin(t), 0.18, 1.05 + 0.02 * np.cos(t), 0.0, 0.0, 0.0, 1.0],
+            dtype=np.float32,
+        )
+        right_pose = np.array(
+            [-0.35 + 0.03 * np.sin(t), -0.18, 1.05 + 0.02 * np.cos(t), 0.0, 0.0, 0.0, 1.0],
+            dtype=np.float32,
+        )
+        base = np.linspace(0.0, 1.0, 12, dtype=np.float32)
+        left_qpos = 0.25 * np.sin(t + base).astype(np.float32)
+        right_qpos = 0.25 * np.cos(t + base).astype(np.float32)
         return head_rmat, left_pose, right_pose, left_qpos, right_qpos
 
 class ActionMapper:
@@ -193,7 +227,7 @@ def _validate_vuer_certificate_files(ngrok: bool) -> None:
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="VisionPro teleoperation on Isaac Lab")
+    parser = argparse.ArgumentParser(description="Teleoperation or mock teleop on Isaac Lab")
     parser.add_argument("--task", type=str, default=TELEOP_TASK_ID, help="Isaac Lab task name")
     parser.add_argument("--retarget_config", type=str, default="inspire_hand.yml", help="Retargeting config")
     parser.add_argument(
@@ -210,18 +244,29 @@ if __name__ == '__main__':
     parser.add_argument("--state_keys", type=str, default="")
     parser.add_argument("--ngrok", action="store_true", help="Enable ngrok mode for Vuer server")
     parser.add_argument("--vuer_port", type=int, default=8012, help="Port for Vuer websocket server")
+    parser.add_argument(
+        "--mock_teleop",
+        "--mock-teleop",
+        action="store_true",
+        help="Use deterministic synthetic hand poses instead of VisionPro/Vuer input.",
+    )
     parser.add_argument("--loop_hz", type=float, default=30.0, help="Main control/render loop frequency")
     add_app_launcher_args(parser)
     args = parser.parse_args()
 
     simulation_app = launch_simulation_app(args)
-    _validate_vuer_certificate_files(args.ngrok)
-
-    teleoperator = VuerTeleop(
-        args.retarget_config,
-        ngrok=args.ngrok,
-        vuer_port=args.vuer_port,
-    )
+    if args.mock_teleop:
+        teleoperator = MockTeleop()
+        if args.max_steps <= 0:
+            args.max_steps = 60
+        print(f"[*] Mock teleop enabled; running for {args.max_steps} steps without VisionPro/Vuer.")
+    else:
+        _validate_vuer_certificate_files(args.ngrok)
+        teleoperator = VuerTeleop(
+            args.retarget_config,
+            ngrok=args.ngrok,
+            vuer_port=args.vuer_port,
+        )
     mapper = ActionMapper(args.action_mapping)
     try:
         env = IsaacLabEnvBridge(

@@ -177,6 +177,17 @@ cd teleop
 python teleop_hand.py --task television_lab --record --output ../data/recordings/isaaclab/processed_episode_0.hdf5
 ```
 
+No-headset smoke test using synthetic hand poses:
+
+```bash
+cd teleop
+python teleop_hand.py --task television_lab --mock_teleop --max_steps 60 --record --output ../data/recordings/mock_teleop/processed_episode_0.hdf5 --headless --memory_mode low
+```
+
+`--mock_teleop` does not start Vuer, does not require Vision Pro, and does not
+require `teleop/cert.pem` or `teleop/key.pem`. It is intended for checking that
+the teleop action assembly, Isaac Lab bridge, recording, and cleanup paths run.
+
 Batch collection:
 
 ```bash

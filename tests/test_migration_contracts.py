@@ -126,6 +126,9 @@ class MigrationContractTests(unittest.TestCase):
         self.assertIn("dex-retargeting<0.5.0", source)
         self.assertIn("_validate_vuer_certificate_files", source)
         self.assertIn("mkcert -install", source)
+        self.assertIn("class MockTeleop", source)
+        self.assertIn("--mock_teleop", source)
+        self.assertNotIn("\nRetargetingConfig = _load_retargeting_config()", source)
 
     def test_requirements_pin_dex_retargeting_to_numpy1_compatible_line(self):
         requirements = (ROOT_DIR / "requirements.txt").read_text(encoding="utf-8")

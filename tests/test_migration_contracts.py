@@ -115,6 +115,12 @@ class MigrationContractTests(unittest.TestCase):
         self.assertIn("parser.set_defaults(headless=True)", source)
         self.assertIn("--memory_mode low --headless", (ROOT_DIR / "README.md").read_text(encoding="utf-8"))
 
+    def test_teleop_script_reports_python_313_dex_retargeting_constraint(self):
+        source = (ROOT_DIR / "teleop" / "teleop_hand.py").read_text(encoding="utf-8")
+        self.assertIn("dex_retargeting is required", source)
+        self.assertIn("Python 3.11 or 3.12", source)
+        self.assertIn("Python < 3.13", source)
+
 
 if __name__ == "__main__":
     unittest.main()

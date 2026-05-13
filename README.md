@@ -39,15 +39,16 @@ pip install -r requirements.txt
 cd act/detr && pip install -e .
 ```
 
-### Python 3.11+ Environment
+### Python 3.11 / 3.12 Environment
 
-For Python 3.11+ setups such as `television_lab`, see [SETUP_PYTHON311.md](SETUP_PYTHON311.md).
+For Python 3.11 or 3.12 setups such as `television_lab`, see [SETUP_PYTHON311.md](SETUP_PYTHON311.md).
 
 Important differences:
 
 - `dex-retargeting` is installed from GitHub
 - `numpy` is constrained to `<2.0` for Isaac Lab compatibility
 - `gymnasium>=0.29.1` is required
+- `dex-retargeting` currently does not support Python 3.13, so teleoperation should be run under Python 3.11 or 3.12
 - quick setup script: `bash install_deps.sh`
 
 ### Isaac Lab / Isaac Sim

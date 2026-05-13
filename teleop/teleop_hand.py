@@ -2,6 +2,7 @@ import numpy as np
 import cv2
 import sys
 from pathlib import Path
+import importlib.util
 
 # Add teleop directory to path for local imports
 TELEOP_DIR = Path(__file__).resolve().parent
@@ -10,8 +11,25 @@ sys.path.insert(0, str(TELEOP_DIR))
 from TeleVision import OpenTeleVision
 from Preprocessor import VuerPreprocessor
 from constants_vuer import tip_indices
-from dex_retargeting.retargeting_config import RetargetingConfig
 from pytransform3d import rotations
+
+
+def _load_retargeting_config():
+    if importlib.util.find_spec("dex_retargeting") is None:
+        version = ".".join(str(part) for part in sys.version_info[:3])
+        raise ModuleNotFoundError(
+            "dex_retargeting is required for teleoperation hand retargeting. "
+            f"Current Python version: {version}. "
+            "dex-retargeting currently supports Python < 3.13, so please use Python 3.11 or 3.12 "
+            "and install it with: pip install git+https://github.com/dexsuite/dex-retargeting.git@main"
+        )
+
+    from dex_retargeting.retargeting_config import RetargetingConfig
+
+    return RetargetingConfig
+
+
+RetargetingConfig = _load_retargeting_config()
 
 import argparse
 import time

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Installation script for TeleVision Isaac Lab environment
-# Handles Python 3.11+ compatible dependencies
+# Handles Python 3.11 / 3.12 compatible dependencies
 
 set -e
 
@@ -16,6 +16,13 @@ echo "[*] Python version: $python_version"
 major_minor=$(echo $python_version | cut -d. -f1-2)
 echo "[*] Python $major_minor detected"
 
+if [ "$major_minor" = "3.13" ]; then
+    echo "[!] Python 3.13 is not supported for teleoperation in this repo."
+    echo "    dex-retargeting currently supports Python < 3.13."
+    echo "    Please create a Python 3.11 or 3.12 environment first."
+    exit 1
+fi
+
 # Verify we're in television_lab environment
 if ! python -c "import sys; sys.exit(0 if 'television_lab' in sys.prefix else 1)" 2>/dev/null; then
     echo "[!] Warning: Not in television_lab conda environment"
@@ -28,8 +35,8 @@ pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 
 echo ""
-echo "[2/3] Installing dex-retargeting from GitHub (Python 3.11+ compatible)..."
-# dex-retargeting 0.5.0 supports Python 3.11+ but not 3.13+
+echo "[2/3] Installing dex-retargeting from GitHub (Python 3.11 / 3.12 compatible)..."
+# dex-retargeting 0.5.0 supports Python < 3.13
 # Install from GitHub main branch for best compatibility
 if pip install git+https://github.com/dexsuite/dex-retargeting.git@main; then
     echo "[✓] dex-retargeting installed successfully"

@@ -20,6 +20,7 @@ HAND_QUAT_XYZW = np.array([0.5, -0.5, 0.5, 0.5], dtype=np.float32)
 LEFT_HOME = np.array([-0.34, 0.18, 1.35], dtype=np.float32)
 RIGHT_HOME = np.array([-0.34, -0.18, 1.35], dtype=np.float32)
 HEAD_RMAT = np.eye(3, dtype=np.float32)
+CUBE_SIZE = 0.05
 
 
 @dataclass(frozen=True)
@@ -53,9 +54,15 @@ def _grip_to_driver_qpos(grip: float) -> np.ndarray:
 
 def _build_demo_phases(cube_center: np.ndarray) -> list[Phase]:
     # Build the trajectory from the cube's current center instead of hard-coding world targets.
-    grasp_offset = np.array([-0.085, 0.005, 0.053], dtype=np.float32)
-    pregrasp_offset = grasp_offset + np.array([0.0, 0.0, 0.082], dtype=np.float32)
-    lift_offset = grasp_offset + np.array([0.0, 0.0, 0.185], dtype=np.float32)
+    cube_top_z = float(cube_center[2] + 0.5 * CUBE_SIZE)
+    wrist_x = float(cube_center[0] - 0.085)
+    wrist_y = float(cube_center[1] + 0.005)
+    wrist_grasp_z = cube_top_z + 0.060
+    wrist_pregrasp_z = wrist_grasp_z + 0.080
+    wrist_lift_z = wrist_grasp_z + 0.115
+    grasp_offset = np.array([wrist_x - cube_center[0], wrist_y - cube_center[1], wrist_grasp_z - cube_center[2]], dtype=np.float32)
+    pregrasp_offset = np.array([wrist_x - cube_center[0], wrist_y - cube_center[1], wrist_pregrasp_z - cube_center[2]], dtype=np.float32)
+    lift_offset = np.array([wrist_x - cube_center[0], wrist_y - cube_center[1], wrist_lift_z - cube_center[2]], dtype=np.float32)
     left_pregrasp = cube_center + pregrasp_offset
     left_grasp = cube_center + grasp_offset
     left_lift = cube_center + lift_offset
@@ -206,7 +213,8 @@ def _current_cube_center(env: IsaacLabEnvBridge) -> np.ndarray:
 
 
 def _cube_attach_position(left_pose: np.ndarray) -> np.ndarray:
-    return left_pose[:3] + np.array([0.085, -0.005, -0.028], dtype=np.float32)
+    # Keep the cube just below the wrist after closure without forcing it into the table.
+    return left_pose[:3] + np.array([0.085, -0.005, -0.045], dtype=np.float32)
 
 
 def _hold_final_pose(
@@ -323,6 +331,7 @@ def main() -> int:
         last_left_grip = 0.0
         step_idx = 0
         app_running_warned = False
+        assist_attached = False
         for phase_name, left_pose, right_pose, left_qpos, right_qpos, left_grip in _iter_actions(cube_center):
             app_running = simulation_app.is_running()
             if not app_running and not app_running_warned:
@@ -347,7 +356,10 @@ def main() -> int:
                 print(f"[Error] Demo step failed during phase '{phase_name}' at scripted step {step_idx}: {exc}")
                 raise
 
-            if args.assist_cube and phase_name in {"close", "lift", "hold"} and left_grip >= 0.8:
+            if args.assist_cube and phase_name in {"lift", "hold"} and left_grip >= 0.95:
+                if not assist_attached:
+                    print("[*] Assist cube attachment engaged.")
+                    assist_attached = True
                 _set_cube_pose(env, _cube_attach_position(left_pose))
 
             if recorder is not None:

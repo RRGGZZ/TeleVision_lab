@@ -259,13 +259,10 @@ class IsaacLabEnvBridge:
         if head_rmat is not None and hasattr(self._env_target, "set_head_rotation"):
             self._env_target.set_head_rotation(head_rmat)
 
-    def _adapt_action(self, action: np.ndarray) -> np.ndarray:
+    def _adapt_action(self, action: np.ndarray):
         action = np.asarray(action, dtype=np.float32)
         if hasattr(self._env_target, "adapt_action"):
-            adapted = _as_numpy(self._env_target.adapt_action(action))
-            if adapted is None:
-                raise RuntimeError("Failed to convert adapted action to a NumPy array.")
-            return np.asarray(adapted, dtype=np.float32)
+            return self._env_target.adapt_action(action)
         return action
 
     def _find_by_keys(

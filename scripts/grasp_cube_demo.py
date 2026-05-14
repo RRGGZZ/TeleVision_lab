@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 import numpy as np
+import torch
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
@@ -165,12 +166,12 @@ def _set_cube_pose(env: IsaacLabEnvBridge, position: np.ndarray) -> None:
     env_target = getattr(env, "_env_target", None)
     if env_target is None or not hasattr(env_target, "cube"):
         return
-    cube_pose = np.zeros((1, 7), dtype=np.float32)
-    cube_pose[0, :3] = position
+    cube_pose = torch.zeros((1, 7), dtype=torch.float32, device=env_target.device)
+    cube_pose[0, :3] = torch.as_tensor(position, dtype=torch.float32, device=env_target.device)
     cube_pose[0, 3] = 1.0
-    cube_pose_t = env_target.adapt_action(cube_pose)
-    env_target.cube.write_root_pose_to_sim(cube_pose_t)
-    env_target.cube.write_root_velocity_to_sim(env_target.adapt_action(np.zeros((1, 6), dtype=np.float32)))
+    cube_vel = torch.zeros((1, 6), dtype=torch.float32, device=env_target.device)
+    env_target.cube.write_root_pose_to_sim(cube_pose)
+    env_target.cube.write_root_velocity_to_sim(cube_vel)
 
 
 def _try_numpy(value):
@@ -237,7 +238,11 @@ def _hold_final_pose(
         loop_start = time.perf_counter()
         env.step(action, head_rmat=HEAD_RMAT)
         if assist_cube and left_grip >= 0.8:
-            _set_cube_pose(env, _cube_attach_position(left_pose))
+            try:
+                _set_cube_pose(env, _cube_attach_position(left_pose))
+            except Exception as exc:
+                print(f"[Warning] Assist cube pose update failed during hold: {exc}")
+                break
         elapsed = time.perf_counter() - loop_start
         if elapsed < target_dt:
             time.sleep(target_dt - elapsed)
@@ -260,7 +265,11 @@ def _stay_open_until_closed(
             loop_start = time.perf_counter()
             env.step(action, head_rmat=HEAD_RMAT)
             if assist_cube and left_grip >= 0.8:
-                _set_cube_pose(env, _cube_attach_position(left_pose))
+                try:
+                    _set_cube_pose(env, _cube_attach_position(left_pose))
+                except Exception as exc:
+                    print(f"[Warning] Assist cube pose update failed during stay_open: {exc}")
+                    break
             elapsed = time.perf_counter() - loop_start
             if elapsed < target_dt:
                 time.sleep(target_dt - elapsed)
@@ -360,7 +369,11 @@ def main() -> int:
                 if not assist_attached:
                     print("[*] Assist cube attachment engaged.")
                     assist_attached = True
-                _set_cube_pose(env, _cube_attach_position(left_pose))
+                try:
+                    _set_cube_pose(env, _cube_attach_position(left_pose))
+                except Exception as exc:
+                    print(f"[Error] Assist cube attachment failed during phase '{phase_name}' at scripted step {step_idx}: {exc}")
+                    raise
 
             if recorder is not None:
                 recorder.append(

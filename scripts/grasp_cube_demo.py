@@ -53,9 +53,10 @@ def _grip_to_driver_qpos(grip: float) -> np.ndarray:
 
 
 def _build_demo_phases() -> list[Phase]:
-    left_pregrasp = np.array([-0.10, 0.10, 1.37], dtype=np.float32)
-    left_grasp = np.array([-0.02, 0.04, 1.315], dtype=np.float32)
-    left_lift = np.array([-0.02, 0.04, 1.43], dtype=np.float32)
+    # Align the wrist above the cube center first, then descend nearly vertically.
+    left_pregrasp = np.array([-0.085, 0.005, 1.385], dtype=np.float32)
+    left_grasp = np.array([-0.085, 0.005, 1.303], dtype=np.float32)
+    left_lift = np.array([-0.085, 0.005, 1.435], dtype=np.float32)
     right_watch = np.array([-0.22, -0.16, 1.35], dtype=np.float32)
     return [
         Phase(
@@ -71,7 +72,7 @@ def _build_demo_phases() -> list[Phase]:
             right_grip_end=0.0,
         ),
         Phase(
-            name="approach",
+            name="align_above_cube",
             steps=55,
             left_start=LEFT_HOME,
             left_end=left_pregrasp,
@@ -83,7 +84,7 @@ def _build_demo_phases() -> list[Phase]:
             right_grip_end=0.0,
         ),
         Phase(
-            name="descend",
+            name="vertical_descend",
             steps=40,
             left_start=left_pregrasp,
             left_end=left_grasp,

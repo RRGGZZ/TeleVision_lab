@@ -262,7 +262,10 @@ class IsaacLabEnvBridge:
     def _adapt_action(self, action: np.ndarray) -> np.ndarray:
         action = np.asarray(action, dtype=np.float32)
         if hasattr(self._env_target, "adapt_action"):
-            return np.asarray(self._env_target.adapt_action(action), dtype=np.float32)
+            adapted = _as_numpy(self._env_target.adapt_action(action))
+            if adapted is None:
+                raise RuntimeError("Failed to convert adapted action to a NumPy array.")
+            return np.asarray(adapted, dtype=np.float32)
         return action
 
     def _find_by_keys(

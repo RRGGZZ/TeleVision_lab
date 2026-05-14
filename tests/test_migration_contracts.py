@@ -64,6 +64,11 @@ class MigrationContractTests(unittest.TestCase):
             "GPU state tensors should be copied to host memory before exposing ObsPack.state.",
         )
         self.assertIn(
+            "adapted = _as_numpy(self._env_target.adapt_action(action))",
+            source,
+            "GPU action tensors should be copied to host memory before NumPy consumers use them.",
+        )
+        self.assertIn(
             "using direct fallback adapter",
             source,
             "The bridge should fall back to the local adapter env when real Isaac Lab creation fails.",

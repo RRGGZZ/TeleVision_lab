@@ -207,6 +207,8 @@ class MigrationContractTests(unittest.TestCase):
         self.assertIn("Scripted cube grasp demo", source)
         self.assertIn("_current_cube_center", source)
         self.assertIn("_iter_actions(cube_center)", source)
+        self.assertIn("GRASP_WRIST_BACK_OFFSET_X", source)
+        self.assertIn("ASSIST_CUBE_FORWARD_OFFSET_X", source)
 
     def test_requirements_pin_dex_retargeting_to_numpy1_compatible_line(self):
         requirements = (ROOT_DIR / "requirements.txt").read_text(encoding="utf-8")

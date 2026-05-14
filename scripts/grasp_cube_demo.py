@@ -22,6 +22,10 @@ LEFT_HOME = np.array([-0.34, 0.18, 1.35], dtype=np.float32)
 RIGHT_HOME = np.array([-0.34, -0.18, 1.35], dtype=np.float32)
 HEAD_RMAT = np.eye(3, dtype=np.float32)
 CUBE_SIZE = 0.05
+GRASP_WRIST_BACK_OFFSET_X = 0.105
+GRASP_WRIST_LATERAL_OFFSET_Y = 0.005
+ASSIST_CUBE_FORWARD_OFFSET_X = 0.105
+ASSIST_CUBE_LATERAL_OFFSET_Y = -0.005
 
 
 @dataclass(frozen=True)
@@ -56,8 +60,8 @@ def _grip_to_driver_qpos(grip: float) -> np.ndarray:
 def _build_demo_phases(cube_center: np.ndarray) -> list[Phase]:
     # Build the trajectory from the cube's current center instead of hard-coding world targets.
     cube_top_z = float(cube_center[2] + 0.5 * CUBE_SIZE)
-    wrist_x = float(cube_center[0] - 0.085)
-    wrist_y = float(cube_center[1] + 0.005)
+    wrist_x = float(cube_center[0] - GRASP_WRIST_BACK_OFFSET_X)
+    wrist_y = float(cube_center[1] + GRASP_WRIST_LATERAL_OFFSET_Y)
     wrist_grasp_z = cube_top_z + 0.060
     wrist_pregrasp_z = wrist_grasp_z + 0.080
     wrist_lift_z = wrist_grasp_z + 0.115
@@ -215,7 +219,10 @@ def _current_cube_center(env: IsaacLabEnvBridge) -> np.ndarray:
 
 def _cube_attach_position(left_pose: np.ndarray) -> np.ndarray:
     # Keep the cube just below the wrist after closure without forcing it into the table.
-    return left_pose[:3] + np.array([0.085, -0.005, -0.045], dtype=np.float32)
+    return left_pose[:3] + np.array(
+        [ASSIST_CUBE_FORWARD_OFFSET_X, ASSIST_CUBE_LATERAL_OFFSET_Y, -0.045],
+        dtype=np.float32,
+    )
 
 
 def _hold_final_pose(

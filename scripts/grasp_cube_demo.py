@@ -19,7 +19,6 @@ from tv_isaaclab.contracts import TELEOP_TASK_ID, assemble_teleop_action, expand
 HAND_QUAT_XYZW = np.array([0.5, -0.5, 0.5, 0.5], dtype=np.float32)
 LEFT_HOME = np.array([-0.34, 0.18, 1.35], dtype=np.float32)
 RIGHT_HOME = np.array([-0.34, -0.18, 1.35], dtype=np.float32)
-CUBE_CENTER = np.array([0.0, 0.0, 1.25], dtype=np.float32)
 HEAD_RMAT = np.eye(3, dtype=np.float32)
 
 
@@ -52,11 +51,14 @@ def _grip_to_driver_qpos(grip: float) -> np.ndarray:
     return expand_inspire_driver_qpos(_lerp(open_driver, closed_driver, grip))
 
 
-def _build_demo_phases() -> list[Phase]:
-    # Align the wrist above the cube center first, then descend nearly vertically.
-    left_pregrasp = np.array([-0.085, 0.005, 1.385], dtype=np.float32)
-    left_grasp = np.array([-0.085, 0.005, 1.303], dtype=np.float32)
-    left_lift = np.array([-0.085, 0.005, 1.435], dtype=np.float32)
+def _build_demo_phases(cube_center: np.ndarray) -> list[Phase]:
+    # Build the trajectory from the cube's current center instead of hard-coding world targets.
+    grasp_offset = np.array([-0.085, 0.005, 0.053], dtype=np.float32)
+    pregrasp_offset = grasp_offset + np.array([0.0, 0.0, 0.082], dtype=np.float32)
+    lift_offset = grasp_offset + np.array([0.0, 0.0, 0.185], dtype=np.float32)
+    left_pregrasp = cube_center + pregrasp_offset
+    left_grasp = cube_center + grasp_offset
+    left_lift = cube_center + lift_offset
     right_watch = np.array([-0.22, -0.16, 1.35], dtype=np.float32)
     return [
         Phase(
@@ -134,8 +136,8 @@ def _build_demo_phases() -> list[Phase]:
     ]
 
 
-def _iter_actions():
-    for phase in _build_demo_phases():
+def _iter_actions(cube_center: np.ndarray):
+    for phase in _build_demo_phases(cube_center):
         for step_idx in range(phase.steps):
             alpha = 1.0 if phase.steps <= 1 else step_idx / float(phase.steps - 1)
             left_pos = _lerp(phase.left_start, phase.left_end, alpha)
@@ -162,6 +164,45 @@ def _set_cube_pose(env: IsaacLabEnvBridge, position: np.ndarray) -> None:
     cube_pose_t = env_target.adapt_action(cube_pose)
     env_target.cube.write_root_pose_to_sim(cube_pose_t)
     env_target.cube.write_root_velocity_to_sim(env_target.adapt_action(np.zeros((1, 6), dtype=np.float32)))
+
+
+def _try_numpy(value):
+    if value is None:
+        return None
+    if hasattr(value, "detach"):
+        value = value.detach()
+    if hasattr(value, "cpu"):
+        value = value.cpu()
+    if hasattr(value, "numpy"):
+        value = value.numpy()
+    try:
+        return np.asarray(value, dtype=np.float32)
+    except Exception:
+        return None
+
+
+def _current_cube_center(env: IsaacLabEnvBridge) -> np.ndarray:
+    env_target = getattr(env, "_env_target", None)
+    if env_target is None or not hasattr(env_target, "cube"):
+        return np.array([0.0, 0.0, 1.25], dtype=np.float32)
+
+    cube = env_target.cube
+    cube_data = getattr(cube, "data", None)
+    if cube_data is not None:
+        for attr_name in ("root_pos_w", "root_state_w", "default_root_state"):
+            raw = getattr(cube_data, attr_name, None)
+            array = _try_numpy(raw)
+            if array is None or array.size < 3:
+                continue
+            if array.ndim == 1:
+                return array[:3].astype(np.float32)
+            return array[0, :3].astype(np.float32)
+
+    env_origins = _try_numpy(getattr(getattr(env_target, "scene", None), "env_origins", None))
+    if env_origins is not None and env_origins.size >= 3:
+        origin = env_origins[0] if env_origins.ndim > 1 else env_origins[:3]
+        return origin[:3].astype(np.float32) + np.array([0.0, 0.0, 1.25], dtype=np.float32)
+    return np.array([0.0, 0.0, 1.25], dtype=np.float32)
 
 
 def _cube_attach_position(left_pose: np.ndarray) -> np.ndarray:
@@ -204,10 +245,12 @@ def main() -> int:
                 "synthetic path."
             )
         env.reset()
+        cube_center = _current_cube_center(env)
+        print(f"[*] Cube center: {cube_center.tolist()}")
 
         target_dt = 1.0 / max(args.loop_hz, 1.0)
         last_phase = None
-        for phase_name, left_pose, right_pose, left_qpos, right_qpos, left_grip in _iter_actions():
+        for phase_name, left_pose, right_pose, left_qpos, right_qpos, left_grip in _iter_actions(cube_center):
             if not simulation_app.is_running():
                 break
             if phase_name != last_phase:

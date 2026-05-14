@@ -205,6 +205,8 @@ python grasp_cube_demo.py --task television_lab --memory_mode low --assist_cube
 This demo drives the left hand through a fixed approach-close-lift sequence.
 `--assist_cube` keeps the cube visually attached after closure so you can verify
 the scene, kinematics, and pickup flow even before contact-rich grasping is fully tuned.
+The trajectory is generated from the cube's current pose at runtime rather than
+from hard-coded world coordinates, so it adapts if the cube spawn point changes.
 
 Do not pass `--headless` for this visual test. `--require_real_env` forces the
 script to fail if the real Isaac Lab `television_lab` scene did not load, instead

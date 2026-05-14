@@ -202,6 +202,8 @@ class MigrationContractTests(unittest.TestCase):
         self.assertIn("--assist_cube", source)
         self.assertIn("--allow_fallback", source)
         self.assertIn("Scripted cube grasp demo", source)
+        self.assertIn("_current_cube_center", source)
+        self.assertIn("_iter_actions(cube_center)", source)
 
     def test_requirements_pin_dex_retargeting_to_numpy1_compatible_line(self):
         requirements = (ROOT_DIR / "requirements.txt").read_text(encoding="utf-8")

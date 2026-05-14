@@ -91,7 +91,8 @@ class ActionContractTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("assemble_teleop_action", real_task_source)
         self.assertIn("adapt_h1_action", real_task_source)
-        self.assertIn("env_cfg_entry_point", real_task_source)
+        self.assertIn('"cfg": TeleVisionTeleopEnvCfg()', real_task_source)
+        self.assertIn('"cfg": TeleVisionH1EnvCfg()', real_task_source)
 
     def test_training_data_loader_discovers_processed_episodes_by_glob(self):
         utils_source = (ROOT_DIR / "act" / "utils.py").read_text(encoding="utf-8")

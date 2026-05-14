@@ -108,9 +108,9 @@ class MigrationContractTests(unittest.TestCase):
         source = (ROOT_DIR / "tv_isaaclab" / "tasks" / "television_lab_real.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("def _head_stereo_rig_cfg()", source)
-        self.assertIn('prim_path="{ENV_REGEX_NS}/HeadStereo"', source)
-        self.assertIn("head_stereo_rig = _head_stereo_rig_cfg()", source)
+        self.assertIn('prim_path="{ENV_REGEX_NS}/head_cam"', source)
+        self.assertIn('"cfg": TeleVisionTeleopEnvCfg()', source)
+        self.assertIn('"cfg": TeleVisionH1EnvCfg()', source)
         self.assertIn("self._is_closed = True", source)
 
     def test_package_prefers_real_task_registration_before_fallback(self):

@@ -146,6 +146,20 @@ class IsaacLabEnvBridge:
     def _create_env(self, task: str, render_mode: str):
         import gymnasium as gym
 
+        real_env_registered = False
+        try:
+            env_spec = gym.spec(task)
+            kwargs = getattr(env_spec, "kwargs", {}) or {}
+            real_env_registered = "cfg" in kwargs or "env_cfg_entry_point" in kwargs
+        except Exception:
+            real_env_registered = False
+
+        if real_env_registered:
+            try:
+                return gym.make(task, render_mode=render_mode)
+            except Exception as exc:
+                print(f"[Warning] Real registered env creation failed for {task}: {exc}")
+
         try:
             from isaaclab_tasks.utils import parse_env_cfg
 

@@ -137,7 +137,7 @@ def _h1_cfg(prim_path: str) -> ArticulationCfg:
 
 def _stereo_camera_cfg(width: int, height: int) -> TiledCameraCfg:
     return TiledCameraCfg(
-        prim_path="{ENV_REGEX_NS}/HeadStereo/head_cam",
+        prim_path="{ENV_REGEX_NS}/head_cam",
         update_period=0.0,
         width=width,
         height=height,
@@ -149,14 +149,6 @@ def _stereo_camera_cfg(width: int, height: int) -> TiledCameraCfg:
             clipping_range=(0.1, 1.0e5),
         ),
         offset=_camera_offset_cfg(),
-    )
-
-
-def _head_stereo_rig_cfg() -> AssetBaseCfg:
-    """Create the camera parent prim before TiledCamera tries to spawn under it."""
-    return AssetBaseCfg(
-        prim_path="{ENV_REGEX_NS}/HeadStereo",
-        spawn=sim_utils.XformCfg(),
     )
 
 
@@ -205,7 +197,6 @@ class TeleVisionTeleopSceneCfg(InteractiveSceneCfg):
     )
     table = _table_cfg()
     cube = _cube_cfg()
-    head_stereo_rig = _head_stereo_rig_cfg()
     stereo_camera = _stereo_camera_cfg(width=1280, height=720)
     light = AssetBaseCfg(
         prim_path="/World/Light",
@@ -219,7 +210,6 @@ class TeleVisionH1SceneCfg(InteractiveSceneCfg):
     robot: ArticulationCfg = _h1_cfg(prim_path="{ENV_REGEX_NS}/Robot")
     table = _table_cfg()
     cube = _cube_cfg()
-    head_stereo_rig = _head_stereo_rig_cfg()
     stereo_camera = _stereo_camera_cfg(width=1280, height=720)
     light = AssetBaseCfg(
         prim_path="/World/Light",
@@ -552,7 +542,7 @@ def register_television_lab_real():
         entry_point="tv_isaaclab.tasks.television_lab_real:TeleVisionTeleopDirectEnv",
         disable_env_checker=True,
         kwargs={
-            "env_cfg_entry_point": "tv_isaaclab.tasks.television_lab_real:TeleVisionTeleopEnvCfg",
+            "cfg": TeleVisionTeleopEnvCfg(),
         },
     )
 
@@ -563,6 +553,6 @@ def register_television_h1_real():
         entry_point="tv_isaaclab.tasks.television_lab_real:TeleVisionH1DirectEnv",
         disable_env_checker=True,
         kwargs={
-            "env_cfg_entry_point": "tv_isaaclab.tasks.television_lab_real:TeleVisionH1EnvCfg",
+            "cfg": TeleVisionH1EnvCfg(),
         },
     )

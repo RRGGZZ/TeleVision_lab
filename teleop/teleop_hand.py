@@ -50,11 +50,11 @@ from tv_isaaclab import (  # noqa: E402
 from tv_isaaclab.contracts import TELEOP_TASK_ID, expand_inspire_driver_qpos
 
 _REFERENCE_LEFT_POSE_XYZW = np.array(
-    [-0.3, 0.5, 1.1, 0.5, -0.5, 0.5, 0.5],
+    [-0.34, 0.18, 1.30, 0.5, -0.5, 0.5, 0.5],
     dtype=np.float32,
 )
 _REFERENCE_RIGHT_POSE_XYZW = np.array(
-    [-0.3, -0.5, 1.1, 0.5, -0.5, 0.5, 0.5],
+    [-0.34, -0.18, 1.30, 0.5, -0.5, 0.5, 0.5],
     dtype=np.float32,
 )
 

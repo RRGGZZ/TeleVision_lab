@@ -35,6 +35,9 @@ _LEFT_HAND_URDF = (_ASSET_DIR / "inspire_hand" / "inspire_hand_left.urdf").as_po
 _RIGHT_HAND_URDF = (_ASSET_DIR / "inspire_hand" / "inspire_hand_right.urdf").as_posix()
 _H1_URDF = (_ASSET_DIR / "h1_inspire" / "urdf" / "h1_inspire.urdf").as_posix()
 _REFERENCE_HAND_QUAT_WXYZ = (0.5, 0.5, -0.5, 0.5)
+_REFERENCE_HAND_X = -0.34
+_REFERENCE_HAND_Y = 0.18
+_REFERENCE_HAND_Z = 1.30
 
 
 def _make_urdf_cfg(
@@ -429,10 +432,10 @@ class TeleVisionTeleopDirectEnv(_TeleVisionDirectEnvBase):
 
     def _neutral_hand_pose(self, side: str, env_ids: Sequence[int]) -> torch.Tensor:
         pose = torch.zeros((len(env_ids), 7), dtype=torch.float32, device=self.device)
-        side_offset = 0.5 if side == "left" else -0.5
-        pose[:, 0] = -0.3
+        side_offset = _REFERENCE_HAND_Y if side == "left" else -_REFERENCE_HAND_Y
+        pose[:, 0] = _REFERENCE_HAND_X
         pose[:, 1] = side_offset
-        pose[:, 2] = 1.1
+        pose[:, 2] = _REFERENCE_HAND_Z
         pose[:, 3:] = torch.tensor(_REFERENCE_HAND_QUAT_WXYZ, dtype=torch.float32, device=self.device)
         pose[:, :3] += self.scene.env_origins[env_ids]
         return pose

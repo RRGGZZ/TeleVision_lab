@@ -54,6 +54,16 @@ class MigrationContractTests(unittest.TestCase):
             "The bridge should surface its resolved task contract for replay/training tooling.",
         )
         self.assertIn(
+            "array = _as_numpy(img)",
+            source,
+            "GPU image tensors should be copied to host memory before NumPy/OpenCV use.",
+        )
+        self.assertIn(
+            "state = _as_numpy(self._find_by_keys(obs, self.state_keys))",
+            source,
+            "GPU state tensors should be copied to host memory before exposing ObsPack.state.",
+        )
+        self.assertIn(
             "using direct fallback adapter",
             source,
             "The bridge should fall back to the local adapter env when real Isaac Lab creation fails.",

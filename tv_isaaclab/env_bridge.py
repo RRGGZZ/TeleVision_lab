@@ -59,7 +59,9 @@ def _resolve_key_path(data: Any, key_path: str) -> Any:
 def _to_hwc_uint8(img: Optional[np.ndarray]) -> Optional[np.ndarray]:
     if img is None:
         return None
-    array = np.asarray(img)
+    array = _as_numpy(img)
+    if array is None:
+        return None
     if array.ndim == 4:
         array = array[0]
     if (
@@ -276,7 +278,7 @@ class IsaacLabEnvBridge:
     def _build_obs_pack(self, obs: Any) -> ObsPack:
         left_rgb = _to_hwc_uint8(self._find_by_keys(obs, self.left_image_keys))
         right_rgb = _to_hwc_uint8(self._find_by_keys(obs, self.right_image_keys))
-        state = self._find_by_keys(obs, self.state_keys)
+        state = _as_numpy(self._find_by_keys(obs, self.state_keys))
 
         if left_rgb is None or right_rgb is None:
             rendered = self.env.render()

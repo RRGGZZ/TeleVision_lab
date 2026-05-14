@@ -166,6 +166,7 @@ class MigrationContractTests(unittest.TestCase):
         self.assertIn("--policy_device", source)
         self.assertIn("--memory_mode low --headless", (ROOT_DIR / "README.md").read_text(encoding="utf-8"))
         self.assertIn("--policy_device cuda", (ROOT_DIR / "README.md").read_text(encoding="utf-8"))
+        self.assertIn("grasp_cube_demo.py --task television_lab --memory_mode low --assist_cube", (ROOT_DIR / "README.md").read_text(encoding="utf-8"))
 
     def test_teleop_script_reports_python_313_dex_retargeting_constraint(self):
         source = (ROOT_DIR / "teleop" / "teleop_hand.py").read_text(encoding="utf-8")
@@ -194,6 +195,13 @@ class MigrationContractTests(unittest.TestCase):
         self.assertIn("REGISTERED_TASK_BACKEND", source)
         self.assertIn("bridge.is_real_env", source)
         self.assertIn("hasattr(warp, 'context')", source)
+
+    def test_scripted_grasp_demo_exists_for_visual_pickup_checks(self):
+        source = (ROOT_DIR / "scripts" / "grasp_cube_demo.py").read_text(encoding="utf-8")
+        self.assertIn("assemble_teleop_action", source)
+        self.assertIn("--assist_cube", source)
+        self.assertIn("--allow_fallback", source)
+        self.assertIn("Scripted cube grasp demo", source)
 
     def test_requirements_pin_dex_retargeting_to_numpy1_compatible_line(self):
         requirements = (ROOT_DIR / "requirements.txt").read_text(encoding="utf-8")

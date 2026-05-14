@@ -1,0 +1,247 @@
+from __future__ import annotations
+
+import argparse
+import time
+from dataclasses import dataclass
+from pathlib import Path
+import sys
+
+import numpy as np
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
+from tv_isaaclab import EpisodeRecorder, IsaacLabEnvBridge, add_app_launcher_args, launch_simulation_app
+from tv_isaaclab.contracts import TELEOP_TASK_ID, assemble_teleop_action, expand_inspire_driver_qpos
+
+
+HAND_QUAT_XYZW = np.array([0.5, -0.5, 0.5, 0.5], dtype=np.float32)
+LEFT_HOME = np.array([-0.34, 0.18, 1.30], dtype=np.float32)
+RIGHT_HOME = np.array([-0.34, -0.18, 1.30], dtype=np.float32)
+CUBE_CENTER = np.array([0.0, 0.0, 1.25], dtype=np.float32)
+HEAD_RMAT = np.eye(3, dtype=np.float32)
+
+
+@dataclass(frozen=True)
+class Phase:
+    name: str
+    steps: int
+    left_start: np.ndarray
+    left_end: np.ndarray
+    right_start: np.ndarray
+    right_end: np.ndarray
+    left_grip_start: float
+    left_grip_end: float
+    right_grip_start: float
+    right_grip_end: float
+
+
+def _lerp(a: np.ndarray, b: np.ndarray, alpha: float) -> np.ndarray:
+    return (1.0 - alpha) * a + alpha * b
+
+
+def _make_pose(position: np.ndarray) -> np.ndarray:
+    return np.concatenate([np.asarray(position, dtype=np.float32), HAND_QUAT_XYZW], axis=0)
+
+
+def _grip_to_driver_qpos(grip: float) -> np.ndarray:
+    grip = float(np.clip(grip, 0.0, 1.0))
+    open_driver = np.zeros(6, dtype=np.float32)
+    closed_driver = np.array([0.75, 0.75, 0.72, 0.72, 0.15, 0.42], dtype=np.float32)
+    return expand_inspire_driver_qpos(_lerp(open_driver, closed_driver, grip))
+
+
+def _build_demo_phases() -> list[Phase]:
+    left_pregrasp = np.array([-0.10, 0.10, 1.33], dtype=np.float32)
+    left_grasp = np.array([-0.02, 0.04, 1.285], dtype=np.float32)
+    left_lift = np.array([-0.02, 0.04, 1.39], dtype=np.float32)
+    right_watch = np.array([-0.22, -0.16, 1.31], dtype=np.float32)
+    return [
+        Phase(
+            name="settle",
+            steps=20,
+            left_start=LEFT_HOME,
+            left_end=LEFT_HOME,
+            right_start=RIGHT_HOME,
+            right_end=RIGHT_HOME,
+            left_grip_start=0.0,
+            left_grip_end=0.0,
+            right_grip_start=0.0,
+            right_grip_end=0.0,
+        ),
+        Phase(
+            name="approach",
+            steps=55,
+            left_start=LEFT_HOME,
+            left_end=left_pregrasp,
+            right_start=RIGHT_HOME,
+            right_end=right_watch,
+            left_grip_start=0.0,
+            left_grip_end=0.0,
+            right_grip_start=0.0,
+            right_grip_end=0.0,
+        ),
+        Phase(
+            name="descend",
+            steps=40,
+            left_start=left_pregrasp,
+            left_end=left_grasp,
+            right_start=right_watch,
+            right_end=right_watch,
+            left_grip_start=0.0,
+            left_grip_end=0.0,
+            right_grip_start=0.0,
+            right_grip_end=0.0,
+        ),
+        Phase(
+            name="close",
+            steps=35,
+            left_start=left_grasp,
+            left_end=left_grasp,
+            right_start=right_watch,
+            right_end=right_watch,
+            left_grip_start=0.0,
+            left_grip_end=1.0,
+            right_grip_start=0.0,
+            right_grip_end=0.15,
+        ),
+        Phase(
+            name="lift",
+            steps=55,
+            left_start=left_grasp,
+            left_end=left_lift,
+            right_start=right_watch,
+            right_end=right_watch,
+            left_grip_start=1.0,
+            left_grip_end=1.0,
+            right_grip_start=0.15,
+            right_grip_end=0.15,
+        ),
+        Phase(
+            name="hold",
+            steps=45,
+            left_start=left_lift,
+            left_end=left_lift,
+            right_start=right_watch,
+            right_end=right_watch,
+            left_grip_start=1.0,
+            left_grip_end=1.0,
+            right_grip_start=0.15,
+            right_grip_end=0.15,
+        ),
+    ]
+
+
+def _iter_actions():
+    for phase in _build_demo_phases():
+        for step_idx in range(phase.steps):
+            alpha = 1.0 if phase.steps <= 1 else step_idx / float(phase.steps - 1)
+            left_pos = _lerp(phase.left_start, phase.left_end, alpha)
+            right_pos = _lerp(phase.right_start, phase.right_end, alpha)
+            left_grip = (1.0 - alpha) * phase.left_grip_start + alpha * phase.left_grip_end
+            right_grip = (1.0 - alpha) * phase.right_grip_start + alpha * phase.right_grip_end
+            yield (
+                phase.name,
+                _make_pose(left_pos),
+                _make_pose(right_pos),
+                _grip_to_driver_qpos(left_grip),
+                _grip_to_driver_qpos(right_grip),
+                left_grip,
+            )
+
+
+def _set_cube_pose(env: IsaacLabEnvBridge, position: np.ndarray) -> None:
+    env_target = getattr(env, "_env_target", None)
+    if env_target is None or not hasattr(env_target, "cube"):
+        return
+    cube_pose = np.zeros((1, 7), dtype=np.float32)
+    cube_pose[0, :3] = position
+    cube_pose[0, 3] = 1.0
+    cube_pose_t = env_target.adapt_action(cube_pose)
+    env_target.cube.write_root_pose_to_sim(cube_pose_t)
+    env_target.cube.write_root_velocity_to_sim(env_target.adapt_action(np.zeros((1, 6), dtype=np.float32)))
+
+
+def _cube_attach_position(left_pose: np.ndarray) -> np.ndarray:
+    return left_pose[:3] + np.array([0.085, -0.005, -0.012], dtype=np.float32)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Scripted cube grasp demo for the Isaac Lab teleop scene")
+    parser.add_argument("--task", type=str, default=TELEOP_TASK_ID)
+    parser.add_argument("--loop_hz", type=float, default=30.0)
+    parser.add_argument("--record", action="store_true", help="Record the scripted demo to an HDF5 episode")
+    parser.add_argument(
+        "--output",
+        type=str,
+        default="../data/demos/grasp_cube_demo/processed_episode_0.hdf5",
+        help="Episode output path when --record is enabled",
+    )
+    parser.add_argument(
+        "--allow_fallback",
+        action="store_true",
+        help="Allow running against the non-USD fallback adapter instead of requiring the real Isaac Lab scene.",
+    )
+    parser.add_argument(
+        "--assist_cube",
+        action="store_true",
+        help="After the fingers close, kinematically keep the cube in the grasp for a guaranteed visual pickup demo.",
+    )
+    add_app_launcher_args(parser)
+    args = parser.parse_args()
+
+    simulation_app = launch_simulation_app(args)
+    recorder = EpisodeRecorder() if args.record else None
+    env = None
+    try:
+        env = IsaacLabEnvBridge(task=args.task)
+        if not args.allow_fallback and not env.is_real_env:
+            raise RuntimeError(
+                "grasp_cube_demo requires the real Isaac Lab scene by default because the fallback adapter has "
+                "no real hand/table/cube USD assets. Re-run with --allow_fallback only if you explicitly want the "
+                "synthetic path."
+            )
+        env.reset()
+
+        target_dt = 1.0 / max(args.loop_hz, 1.0)
+        last_phase = None
+        for phase_name, left_pose, right_pose, left_qpos, right_qpos, left_grip in _iter_actions():
+            if not simulation_app.is_running():
+                break
+            if phase_name != last_phase:
+                print(f"[*] Phase: {phase_name}")
+                last_phase = phase_name
+
+            action = assemble_teleop_action(left_pose, right_pose, left_qpos, right_qpos)
+            loop_start = time.perf_counter()
+            obs = env.step(action, head_rmat=HEAD_RMAT)
+
+            if args.assist_cube and phase_name in {"close", "lift", "hold"} and left_grip >= 0.8:
+                _set_cube_pose(env, _cube_attach_position(left_pose))
+
+            if recorder is not None:
+                recorder.append(
+                    left_rgb=obs.left_rgb,
+                    right_rgb=obs.right_rgb,
+                    state=obs.state,
+                    action=action,
+                    cmd=action,
+                )
+
+            elapsed = time.perf_counter() - loop_start
+            if elapsed < target_dt:
+                time.sleep(target_dt - elapsed)
+
+        if recorder is not None:
+            recorder.save(Path(args.output))
+            print(f"[*] Saved scripted grasp episode to: {args.output}")
+        return 0
+    finally:
+        if env is not None:
+            env.close()
+        simulation_app.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

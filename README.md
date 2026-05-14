@@ -195,6 +195,17 @@ cd teleop
 python teleop_hand.py --task television_lab --mock_teleop --max_steps 600 --require_real_env --memory_mode low
 ```
 
+Scripted grasp demo without VisionPro:
+
+```bash
+cd scripts
+python grasp_cube_demo.py --task television_lab --memory_mode low --assist_cube
+```
+
+This demo drives the left hand through a fixed approach-close-lift sequence.
+`--assist_cube` keeps the cube visually attached after closure so you can verify
+the scene, kinematics, and pickup flow even before contact-rich grasping is fully tuned.
+
 Do not pass `--headless` for this visual test. `--require_real_env` forces the
 script to fail if the real Isaac Lab `television_lab` scene did not load, instead
 of silently falling back to synthetic frames. If the fallback path is active, USD

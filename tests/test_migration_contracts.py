@@ -161,12 +161,14 @@ class MigrationContractTests(unittest.TestCase):
 
     def test_headless_smoke_script_defaults_to_headless_app_launcher(self):
         source = (ROOT_DIR / "scripts" / "headless_full_run.py").read_text(encoding="utf-8")
+        readme = (ROOT_DIR / "README.md").read_text(encoding="utf-8")
         self.assertIn("parser.set_defaults(headless=True)", source)
         self.assertNotIn('parser.add_argument("--device"', source)
         self.assertIn("--policy_device", source)
-        self.assertIn("--memory_mode low --headless", (ROOT_DIR / "README.md").read_text(encoding="utf-8"))
-        self.assertIn("--policy_device cuda", (ROOT_DIR / "README.md").read_text(encoding="utf-8"))
-        self.assertIn("grasp_cube_demo.py --task television_lab --memory_mode low --assist_cube", (ROOT_DIR / "README.md").read_text(encoding="utf-8"))
+        self.assertIn("--memory_mode low --headless", readme)
+        self.assertIn("--policy_device cuda", readme)
+        self.assertIn("grasp_cube_demo.py --task television_lab --memory_mode low --assist_cube --stay_open", readme)
+        self.assertIn("img/grasp_cube_demo.png", readme)
 
     def test_teleop_script_reports_python_313_dex_retargeting_constraint(self):
         source = (ROOT_DIR / "teleop" / "teleop_hand.py").read_text(encoding="utf-8")

@@ -19,6 +19,12 @@ The codebase also records schema metadata into processed HDF5 episodes:
 
 Replay and deploy scripts use this metadata to route episodes to the correct task automatically.
 
+## Demo Snapshot
+
+Current Isaac Lab scripted grasp demo:
+
+![Scripted cube grasp demo](img/grasp_cube_demo.png)
+
 ## Runtime Model
 
 Task registration now prefers real Isaac Lab tasks first:
@@ -199,19 +205,28 @@ Scripted grasp demo without VisionPro:
 
 ```bash
 cd scripts
-python grasp_cube_demo.py --task television_lab --memory_mode low --assist_cube
+python grasp_cube_demo.py --task television_lab --memory_mode low --assist_cube --stay_open
 ```
 
-This demo drives the left hand through a fixed approach-close-lift sequence.
-`--assist_cube` keeps the cube visually attached after closure so you can verify
-the scene, kinematics, and pickup flow even before contact-rich grasping is fully tuned.
-The trajectory is generated from the cube's current pose at runtime rather than
-from hard-coded world coordinates, so it adapts if the cube spawn point changes.
-By default it also keeps the lifted final pose visible for a few seconds. Add
-`--stay_open` if you want the scene to remain up until you manually close it.
-If your Isaac runtime reports `SimulationApp.is_running()` as false too early,
-the demo now continues its finite scripted sequence by default and only stops on
-an actual stepping error. `--respect_app_running` restores the stricter behavior.
+This demo is intended as a visual validation path for the migrated Isaac Lab scene.
+It currently:
+
+- reads the cube's current pose at runtime
+- generates a scripted approach, descend, close, lift, and hold sequence around that cube pose
+- supports `--assist_cube` so the cube remains attached during the lift/hold phase for stable visualization
+- keeps the final lifted pose visible with `--stay_open`
+
+Useful options:
+
+- `--assist_cube`: visually attaches the cube after closure during lift/hold
+- `--stay_open`: keep the final pose on screen until you manually close the app
+- `--post_grasp_hold_s 8`: hold the lifted pose for a longer fixed duration
+- `--respect_app_running`: stop immediately if `SimulationApp.is_running()` flips false
+
+The scripted grasp path is no longer hard-coded in world coordinates. It derives
+its trajectory from the cube's current pose, and the main reach offsets are now
+explicit named constants in [scripts/grasp_cube_demo.py](scripts/grasp_cube_demo.py),
+so future tuning is localized and predictable.
 
 Do not pass `--headless` for this visual test. `--require_real_env` forces the
 script to fail if the real Isaac Lab `television_lab` scene did not load, instead

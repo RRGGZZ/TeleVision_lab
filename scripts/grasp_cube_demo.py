@@ -275,6 +275,12 @@ def main() -> int:
         action="store_true",
         help="After the scripted sequence finishes, keep the window alive until you close it.",
     )
+    parser.add_argument(
+        "--respect_app_running",
+        action="store_true",
+        help="Stop the scripted sequence as soon as SimulationApp reports not running. "
+        "By default the demo continues its finite scripted steps and relies on step exceptions instead.",
+    )
     parser.add_argument("--record", action="store_true", help="Record the scripted demo to an HDF5 episode")
     parser.add_argument(
         "--output",
@@ -315,8 +321,16 @@ def main() -> int:
         last_action = None
         last_left_pose = None
         last_left_grip = 0.0
+        step_idx = 0
+        app_running_warned = False
         for phase_name, left_pose, right_pose, left_qpos, right_qpos, left_grip in _iter_actions(cube_center):
-            if not simulation_app.is_running():
+            app_running = simulation_app.is_running()
+            if not app_running and not app_running_warned:
+                print("[Warning] SimulationApp reported not running during scripted demo; "
+                      "continuing finite grasp sequence unless stepping fails.")
+                app_running_warned = True
+            if args.respect_app_running and not app_running:
+                print("[Warning] Stopping scripted demo early because --respect_app_running was set.")
                 break
             if phase_name != last_phase:
                 print(f"[*] Phase: {phase_name}")
@@ -327,7 +341,11 @@ def main() -> int:
             last_left_pose = left_pose.copy()
             last_left_grip = left_grip
             loop_start = time.perf_counter()
-            obs = env.step(action, head_rmat=HEAD_RMAT)
+            try:
+                obs = env.step(action, head_rmat=HEAD_RMAT)
+            except Exception as exc:
+                print(f"[Error] Demo step failed during phase '{phase_name}' at scripted step {step_idx}: {exc}")
+                raise
 
             if args.assist_cube and phase_name in {"close", "lift", "hold"} and left_grip >= 0.8:
                 _set_cube_pose(env, _cube_attach_position(left_pose))
@@ -344,8 +362,10 @@ def main() -> int:
             elapsed = time.perf_counter() - loop_start
             if elapsed < target_dt:
                 time.sleep(target_dt - elapsed)
+            step_idx += 1
 
         if last_action is not None and last_left_pose is not None:
+            print("[*] Scripted grasp sequence complete.")
             _hold_final_pose(
                 env,
                 simulation_app,

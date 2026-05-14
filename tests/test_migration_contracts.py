@@ -202,6 +202,7 @@ class MigrationContractTests(unittest.TestCase):
         self.assertIn("--assist_cube", source)
         self.assertIn("--allow_fallback", source)
         self.assertIn("--post_grasp_hold_s", source)
+        self.assertIn("--respect_app_running", source)
         self.assertIn("--stay_open", source)
         self.assertIn("Scripted cube grasp demo", source)
         self.assertIn("_current_cube_center", source)

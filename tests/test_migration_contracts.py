@@ -142,6 +142,9 @@ class MigrationContractTests(unittest.TestCase):
         self.assertIn("ROOT_DIR", source)
         self.assertIn("isaaclab_tasks", source)
         self.assertIn("television_lab_real", source)
+        self.assertIn("--skip_runtime", source)
+        self.assertIn("REGISTERED_TASK_BACKEND", source)
+        self.assertIn("bridge.is_real_env", source)
 
     def test_requirements_pin_dex_retargeting_to_numpy1_compatible_line(self):
         requirements = (ROOT_DIR / "requirements.txt").read_text(encoding="utf-8")

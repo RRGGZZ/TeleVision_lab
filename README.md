@@ -213,6 +213,12 @@ If the diagnostic still reports failed Isaac imports after the shim, repair the
 active Isaac Sim / Isaac Lab package set first, then rerun the visual command
 above.
 
+For a quick package-only check without launching Kit:
+
+```bash
+python scripts/diagnose_isaac_runtime.py --skip_runtime
+```
+
 Batch collection:
 
 ```bash

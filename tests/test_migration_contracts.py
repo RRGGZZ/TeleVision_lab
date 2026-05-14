@@ -138,7 +138,7 @@ class MigrationContractTests(unittest.TestCase):
         self.assertIn("_REFERENCE_HAND_QUAT_WXYZ = (0.5, 0.5, -0.5, 0.5)", source)
         self.assertIn("_REFERENCE_HAND_X = -0.34", source)
         self.assertIn("_REFERENCE_HAND_Y = 0.18", source)
-        self.assertIn("_REFERENCE_HAND_Z = 1.30", source)
+        self.assertIn("_REFERENCE_HAND_Z = 1.35", source)
         self.assertIn('side_offset = _REFERENCE_HAND_Y if side == "left" else -_REFERENCE_HAND_Y', source)
         self.assertIn("pose[:, 0] = _REFERENCE_HAND_X", source)
         self.assertIn("pose[:, 2] = _REFERENCE_HAND_Z", source)

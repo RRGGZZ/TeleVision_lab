@@ -17,8 +17,8 @@ from tv_isaaclab.contracts import TELEOP_TASK_ID, assemble_teleop_action, expand
 
 
 HAND_QUAT_XYZW = np.array([0.5, -0.5, 0.5, 0.5], dtype=np.float32)
-LEFT_HOME = np.array([-0.34, 0.18, 1.30], dtype=np.float32)
-RIGHT_HOME = np.array([-0.34, -0.18, 1.30], dtype=np.float32)
+LEFT_HOME = np.array([-0.34, 0.18, 1.35], dtype=np.float32)
+RIGHT_HOME = np.array([-0.34, -0.18, 1.35], dtype=np.float32)
 CUBE_CENTER = np.array([0.0, 0.0, 1.25], dtype=np.float32)
 HEAD_RMAT = np.eye(3, dtype=np.float32)
 
@@ -53,10 +53,10 @@ def _grip_to_driver_qpos(grip: float) -> np.ndarray:
 
 
 def _build_demo_phases() -> list[Phase]:
-    left_pregrasp = np.array([-0.10, 0.10, 1.33], dtype=np.float32)
-    left_grasp = np.array([-0.02, 0.04, 1.285], dtype=np.float32)
-    left_lift = np.array([-0.02, 0.04, 1.39], dtype=np.float32)
-    right_watch = np.array([-0.22, -0.16, 1.31], dtype=np.float32)
+    left_pregrasp = np.array([-0.10, 0.10, 1.37], dtype=np.float32)
+    left_grasp = np.array([-0.02, 0.04, 1.315], dtype=np.float32)
+    left_lift = np.array([-0.02, 0.04, 1.43], dtype=np.float32)
+    right_watch = np.array([-0.22, -0.16, 1.35], dtype=np.float32)
     return [
         Phase(
             name="settle",
@@ -164,7 +164,7 @@ def _set_cube_pose(env: IsaacLabEnvBridge, position: np.ndarray) -> None:
 
 
 def _cube_attach_position(left_pose: np.ndarray) -> np.ndarray:
-    return left_pose[:3] + np.array([0.085, -0.005, -0.012], dtype=np.float32)
+    return left_pose[:3] + np.array([0.085, -0.005, -0.028], dtype=np.float32)
 
 
 def main() -> int:

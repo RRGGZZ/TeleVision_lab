@@ -37,7 +37,7 @@ _H1_URDF = (_ASSET_DIR / "h1_inspire" / "urdf" / "h1_inspire.urdf").as_posix()
 _REFERENCE_HAND_QUAT_WXYZ = (0.5, 0.5, -0.5, 0.5)
 _REFERENCE_HAND_X = -0.34
 _REFERENCE_HAND_Y = 0.18
-_REFERENCE_HAND_Z = 1.30
+_REFERENCE_HAND_Z = 1.35
 
 
 def _make_urdf_cfg(

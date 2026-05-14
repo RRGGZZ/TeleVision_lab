@@ -123,8 +123,9 @@ class MigrationContractTests(unittest.TestCase):
         source = (ROOT_DIR / "tv_isaaclab" / "bootstrap.py").read_text(encoding="utf-8")
         self.assertIn("_configure_camera_mode()", source)
         self.assertIn('os.environ.setdefault("ENABLE_CAMERAS", "1")', source)
-        self.assertIn("patch_warp_legacy_array_alias()", source)
+        self.assertIn("patch_warp_legacy_api_aliases()", source)
         self.assertIn('setattr(warp_types, "array", wp.array)', source)
+        self.assertIn('setattr(wp, "context", wp)', source)
         self.assertIn("_register_real_tasks_after_app()", source)
 
     def test_headless_smoke_script_defaults_to_headless_app_launcher(self):
@@ -152,13 +153,14 @@ class MigrationContractTests(unittest.TestCase):
     def test_runtime_diagnostic_reports_warp_state(self):
         source = (ROOT_DIR / "scripts" / "diagnose_isaac_runtime.py").read_text(encoding="utf-8")
         self.assertIn("warp.types", source)
-        self.assertIn("patch_warp_legacy_array_alias", source)
+        self.assertIn("patch_warp_legacy_api_aliases", source)
         self.assertIn("ROOT_DIR", source)
         self.assertIn("isaaclab_tasks", source)
         self.assertIn("television_lab_real", source)
         self.assertIn("--skip_runtime", source)
         self.assertIn("REGISTERED_TASK_BACKEND", source)
         self.assertIn("bridge.is_real_env", source)
+        self.assertIn("hasattr(warp, 'context')", source)
 
     def test_requirements_pin_dex_retargeting_to_numpy1_compatible_line(self):
         requirements = (ROOT_DIR / "requirements.txt").read_text(encoding="utf-8")

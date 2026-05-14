@@ -67,15 +67,16 @@ def _check_warp_alias() -> None:
             "  PROBLEM: Isaac Sim is importing a Warp build without warp.types.array. "
             "This usually means the active environment has an incompatible or shadowing Warp package."
         )
-        try:
-            from tv_isaaclab.bootstrap import patch_warp_legacy_array_alias
+    try:
+        from tv_isaaclab.bootstrap import patch_warp_legacy_api_aliases
 
-            patched = patch_warp_legacy_array_alias()
-            print(f"  compatibility shim applied: {patched}")
-            print(f"  after shim hasattr(warp.types, 'array'): {hasattr(getattr(wp, 'types', None), 'array')}")
-        except Exception:
-            print("  compatibility shim failed")
-            traceback.print_exc(limit=3)
+        patched = patch_warp_legacy_api_aliases()
+        print(f"  compatibility shim applied: {patched}")
+        print(f"  after shim hasattr(warp.types, 'array'): {hasattr(getattr(wp, 'types', None), 'array')}")
+        print(f"  after shim hasattr(warp, 'context'): {hasattr(wp, 'context')}")
+    except Exception:
+        print("  compatibility shim failed")
+        traceback.print_exc(limit=3)
 
 
 def _prelaunch_checks() -> None:

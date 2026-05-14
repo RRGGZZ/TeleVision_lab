@@ -44,19 +44,27 @@ def _configure_camera_mode():
     os.environ.setdefault("ENABLE_CAMERAS", "1")
 
 
-def patch_warp_legacy_array_alias() -> bool:
+def patch_warp_legacy_api_aliases() -> list[str]:
     """Keep Isaac Sim 5.1 extensions compatible with newer NVIDIA Warp builds."""
     try:
         import warp as wp
     except Exception:
-        return False
+        return []
+
+    applied: list[str] = []
 
     warp_types = getattr(wp, "types", None)
-    if warp_types is None or hasattr(warp_types, "array") or not hasattr(wp, "array"):
-        return False
+    if warp_types is not None and not hasattr(warp_types, "array") and hasattr(wp, "array"):
+        setattr(warp_types, "array", wp.array)
+        applied.append("warp.types.array -> warp.array")
 
-    setattr(warp_types, "array", wp.array)
-    return True
+    # Warp 1.13 removed the legacy `warp.context` shim module. Older Isaac code still
+    # reaches through `wp.context.*`, so alias it back to the public top-level module.
+    if not hasattr(wp, "context"):
+        setattr(wp, "context", wp)
+        applied.append("warp.context -> warp")
+    sys.modules.setdefault("warp.context", wp)
+    return applied
 
 
 def _register_real_tasks_after_app() -> None:
@@ -75,8 +83,9 @@ def _register_real_tasks_after_app() -> None:
 def launch_simulation_app(args):
     _configure_memory_mode(args)
     _configure_camera_mode()
-    if patch_warp_legacy_array_alias():
-        print("[*] Applied Warp compatibility shim: warp.types.array -> warp.array")
+    applied_aliases = patch_warp_legacy_api_aliases()
+    if applied_aliases:
+        print(f"[*] Applied Warp compatibility shim: {', '.join(applied_aliases)}")
 
     app_launcher_cls = _import_app_launcher()
     app_launcher = app_launcher_cls(args)

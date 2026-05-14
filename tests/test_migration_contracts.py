@@ -53,6 +53,11 @@ class MigrationContractTests(unittest.TestCase):
             source,
             "The bridge should surface its resolved task contract for replay/training tooling.",
         )
+        self.assertIn(
+            "using direct fallback adapter",
+            source,
+            "The bridge should fall back to the local adapter env when real Isaac Lab creation fails.",
+        )
 
     def test_deploy_script_has_no_legacy_state_action_shape_constants(self):
         source = (ROOT_DIR / "scripts" / "deploy_sim.py").read_text(encoding="utf-8")
@@ -98,6 +103,15 @@ class MigrationContractTests(unittest.TestCase):
         self.assertIn('self.is_real_env = False', source)
         self.assertIn("self.action_schema =", source)
         self.assertIn("self.state_schema =", source)
+
+    def test_real_task_creates_camera_parent_rig_before_tiled_camera(self):
+        source = (ROOT_DIR / "tv_isaaclab" / "tasks" / "television_lab_real.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("def _head_stereo_rig_cfg()", source)
+        self.assertIn('prim_path="{ENV_REGEX_NS}/HeadStereo"', source)
+        self.assertIn("head_stereo_rig = _head_stereo_rig_cfg()", source)
+        self.assertIn("self._is_closed = True", source)
 
     def test_package_prefers_real_task_registration_before_fallback(self):
         source = (ROOT_DIR / "tv_isaaclab" / "__init__.py").read_text(encoding="utf-8")

@@ -98,15 +98,7 @@ class IsaacLabEnvBridge:
 
         _try_import_isaaclab_tasks()
         self.task = task
-
-        try:
-            from isaaclab_tasks.utils import parse_env_cfg
-
-            env_cfg = parse_env_cfg(task, device="cuda:0", num_envs=1)
-            os.environ.setdefault("ENABLE_CAMERAS", "1")
-            self.env = gym.make(task, cfg=env_cfg, render_mode=render_mode)
-        except Exception:
-            self.env = gym.make(task, render_mode=render_mode)
+        self.env = self._create_env(task=task, render_mode=render_mode)
 
         self.left_image_keys = list(
             left_image_keys
@@ -150,6 +142,55 @@ class IsaacLabEnvBridge:
             f"unknown_state_dim_{self.action_dim}",
         )
         self.task_contract = infer_task_from_schemas(self.action_schema, self.action_dim, fallback=task)
+
+    def _create_env(self, task: str, render_mode: str):
+        import gymnasium as gym
+
+        try:
+            from isaaclab_tasks.utils import parse_env_cfg
+
+            env_cfg = parse_env_cfg(task, device="cuda:0", num_envs=1)
+            os.environ.setdefault("ENABLE_CAMERAS", "1")
+            return gym.make(task, cfg=env_cfg, render_mode=render_mode)
+        except Exception as exc:
+            print(f"[Warning] Isaac Lab env creation failed for {task}, falling back to adapter env: {exc}")
+
+        try:
+            return gym.make(task, render_mode=render_mode)
+        except Exception as exc:
+            print(f"[Warning] Gym registration path failed for {task}, using direct fallback adapter: {exc}")
+            fallback_cfg = self._fallback_config_for_task(task)
+            from .tasks.television_lab import TelevisionLabEnv
+
+            return TelevisionLabEnv(cfg=fallback_cfg, render_mode=render_mode)
+
+    @staticmethod
+    def _fallback_config_for_task(task: str):
+        from .tasks.television_lab import TelevisionLabConfig
+        from .contracts import (
+            H1_ACTION_DIM,
+            H1_STATE_SCHEMA,
+            H1_TASK_ID,
+            TELEOP_ACTION_DIM,
+            TELEOP_STATE_SCHEMA,
+            TELEOP_TASK_ID,
+        )
+
+        if task == H1_TASK_ID:
+            return TelevisionLabConfig(
+                action_dim=H1_ACTION_DIM,
+                state_dim=H1_ACTION_DIM,
+                scene_mode="h1",
+                task_id=H1_TASK_ID,
+                state_schema=H1_STATE_SCHEMA,
+            )
+        return TelevisionLabConfig(
+            action_dim=TELEOP_ACTION_DIM,
+            state_dim=TELEOP_ACTION_DIM,
+            scene_mode="teleop",
+            task_id=TELEOP_TASK_ID,
+            state_schema=TELEOP_STATE_SCHEMA,
+        )
 
     @property
     def action_dim(self) -> int:

@@ -152,6 +152,14 @@ def _stereo_camera_cfg(width: int, height: int) -> TiledCameraCfg:
     )
 
 
+def _head_stereo_rig_cfg() -> AssetBaseCfg:
+    """Create the camera parent prim before TiledCamera tries to spawn under it."""
+    return AssetBaseCfg(
+        prim_path="{ENV_REGEX_NS}/HeadStereo",
+        spawn=sim_utils.XformCfg(),
+    )
+
+
 def _table_cfg() -> AssetBaseCfg:
     return AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/Table",
@@ -197,6 +205,7 @@ class TeleVisionTeleopSceneCfg(InteractiveSceneCfg):
     )
     table = _table_cfg()
     cube = _cube_cfg()
+    head_stereo_rig = _head_stereo_rig_cfg()
     stereo_camera = _stereo_camera_cfg(width=1280, height=720)
     light = AssetBaseCfg(
         prim_path="/World/Light",
@@ -210,6 +219,7 @@ class TeleVisionH1SceneCfg(InteractiveSceneCfg):
     robot: ArticulationCfg = _h1_cfg(prim_path="{ENV_REGEX_NS}/Robot")
     table = _table_cfg()
     cube = _cube_cfg()
+    head_stereo_rig = _head_stereo_rig_cfg()
     stereo_camera = _stereo_camera_cfg(width=1280, height=720)
     light = AssetBaseCfg(
         prim_path="/World/Light",
@@ -272,6 +282,8 @@ class _TeleVisionDirectEnvBase(DirectRLEnv):
     state_schema: str
 
     def __init__(self, cfg: DirectRLEnvCfg, render_mode: str | None = None, **kwargs):
+        # Isaac Lab may call __del__ on partially constructed envs when scene creation fails.
+        self._is_closed = True
         self._latest_action = None
         self._head_rmat = None
         self._eye_offset = None

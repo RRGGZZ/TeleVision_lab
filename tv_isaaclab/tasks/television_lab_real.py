@@ -9,7 +9,7 @@ import torch
 import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import Articulation, ArticulationCfg, AssetBaseCfg, RigidObject, RigidObjectCfg
-from isaaclab.envs import DirectRLEnv, DirectRLEnvCfg
+from isaaclab.envs import DirectRLEnv, DirectRLEnvCfg, ViewerCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import TiledCamera, TiledCameraCfg
 from isaaclab.utils import configclass
@@ -161,7 +161,7 @@ def _table_cfg() -> AssetBaseCfg:
             collision_props=sim_utils.CollisionPropertiesCfg(),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.5, 0.5, 0.5), metallic=0.0),
         ),
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 1.0)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 1.2)),
     )
 
 
@@ -178,7 +178,7 @@ def _cube_cfg() -> RigidObjectCfg:
             collision_props=sim_utils.CollisionPropertiesCfg(),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.5, 0.5), metallic=0.0),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 1.08)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 1.25)),
     )
 
 
@@ -237,6 +237,11 @@ class TeleVisionTeleopEnvCfg(DirectRLEnvCfg):
         replicate_physics=True,
         filter_collisions=True,
     )
+    viewer: ViewerCfg = ViewerCfg(
+        eye=(1.0, 1.0, 2.0),
+        lookat=(0.0, 0.0, 1.0),
+        origin_type="world",
+    )
     num_rerenders_on_reset = 2
 
 
@@ -260,6 +265,11 @@ class TeleVisionH1EnvCfg(DirectRLEnvCfg):
         replicate_physics=True,
         filter_collisions=True,
     )
+    viewer: ViewerCfg = ViewerCfg(
+        eye=(1.0, 1.0, 2.0),
+        lookat=(0.0, 0.0, 1.0),
+        origin_type="world",
+    )
     num_rerenders_on_reset = 2
 
 
@@ -282,7 +292,7 @@ class _TeleVisionDirectEnvBase(DirectRLEnv):
         self._latest_action = torch.zeros((self.num_envs, self.action_dim), dtype=torch.float32, device=self.device)
         self._head_rmat = torch.eye(3, dtype=torch.float32, device=self.device).repeat(self.num_envs, 1, 1)
         self._eye_offset = torch.tensor([0.0, 0.033, 0.0], dtype=torch.float32, device=self.device)
-        self._head_anchor = torch.tensor([-0.15, 0.0, 1.18], dtype=torch.float32, device=self.device)
+        self._head_anchor = torch.tensor([-0.6, 0.0, 1.6], dtype=torch.float32, device=self.device)
         self._zero_root_velocity = torch.zeros((self.num_envs, 6), dtype=torch.float32, device=self.device)
 
     def adapt_action(self, action):
@@ -418,9 +428,10 @@ class TeleVisionTeleopDirectEnv(_TeleVisionDirectEnvBase):
 
     def _neutral_hand_pose(self, side: str, env_ids: Sequence[int]) -> torch.Tensor:
         pose = torch.zeros((len(env_ids), 7), dtype=torch.float32, device=self.device)
-        pose[:, 0] = -0.08
-        pose[:, 1] = 0.18 if side == "left" else -0.18
-        pose[:, 2] = 1.12
+        del side
+        pose[:, 0] = -0.6
+        pose[:, 1] = 0.0
+        pose[:, 2] = 1.6
         pose[:, 3] = 1.0
         pose[:, :3] += self.scene.env_origins[env_ids]
         return pose

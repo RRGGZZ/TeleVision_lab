@@ -200,10 +200,10 @@ script to fail if the real Isaac Lab `television_lab` scene did not load, instea
 of silently falling back to synthetic frames. If the fallback path is active, USD
 assets such as the hands, table, and cube are not present in the Isaac viewport.
 
-The default real-scene layout is tuned for quick visual inspection: the table is
-lower, the cube rests on the tabletop, and both Inspire hands spawn closer to the
-workspace so they are easier to spot in the Isaac viewport while `--mock_teleop`
-is animating them.
+The default real-scene layout now mirrors the original `TeleVision` reference
+workspace more closely: table at `z=1.2`, cube at `z=1.25`, head/camera anchor at
+`(-0.6, 0.0, 1.6)`, and the default viewer aimed from `(1, 1, 2)` toward
+`(0, 0, 1)`.
 
 If Isaac Lab fails with a Warp error such as `warp.types.array`, diagnose the
 active environment from the repository root:

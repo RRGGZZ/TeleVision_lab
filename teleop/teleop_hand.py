@@ -144,11 +144,11 @@ class MockTeleop:
 
         head_rmat = np.eye(3, dtype=np.float32)
         left_pose = np.array(
-            [-0.35 + 0.03 * np.sin(t), 0.18, 1.05 + 0.02 * np.cos(t), 0.0, 0.0, 0.0, 1.0],
+            [-0.6 + 0.03 * np.sin(t), 0.10, 1.6 + 0.02 * np.cos(t), 0.0, 0.0, 0.0, 1.0],
             dtype=np.float32,
         )
         right_pose = np.array(
-            [-0.35 + 0.03 * np.sin(t), -0.18, 1.05 + 0.02 * np.cos(t), 0.0, 0.0, 0.0, 1.0],
+            [-0.6 + 0.03 * np.sin(t), -0.10, 1.6 + 0.02 * np.cos(t), 0.0, 0.0, 0.0, 1.0],
             dtype=np.float32,
         )
         base = np.linspace(0.0, 1.0, 12, dtype=np.float32)

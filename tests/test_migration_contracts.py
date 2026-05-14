@@ -132,9 +132,10 @@ class MigrationContractTests(unittest.TestCase):
         self.assertIn('"cfg": TeleVisionTeleopEnvCfg()', source)
         self.assertIn('"cfg": TeleVisionH1EnvCfg()', source)
         self.assertIn("self._is_closed = True", source)
-        self.assertIn('init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 1.0))', source)
-        self.assertIn('init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 1.08))', source)
-        self.assertIn('self._head_anchor = torch.tensor([-0.15, 0.0, 1.18]', source)
+        self.assertIn('init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 1.2))', source)
+        self.assertIn('init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 1.25))', source)
+        self.assertIn('self._head_anchor = torch.tensor([-0.6, 0.0, 1.6]', source)
+        self.assertIn("viewer: ViewerCfg = ViewerCfg(", source)
 
     def test_package_prefers_real_task_registration_before_fallback(self):
         source = (ROOT_DIR / "tv_isaaclab" / "__init__.py").read_text(encoding="utf-8")

@@ -69,6 +69,11 @@ class MigrationContractTests(unittest.TestCase):
             "Action adaptation should preserve env-native tensor types for the simulator backend.",
         )
         self.assertIn(
+            "if self._any_true(terminated) or self._any_true(truncated):",
+            source,
+            "Termination checks should work for both NumPy arrays and torch tensors.",
+        )
+        self.assertIn(
             "using direct fallback adapter",
             source,
             "The bridge should fall back to the local adapter env when real Isaac Lab creation fails.",

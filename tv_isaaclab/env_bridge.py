@@ -247,7 +247,7 @@ class IsaacLabEnvBridge:
         if action.ndim == 1:
             action = action[None, :]
         obs, _, terminated, truncated, _ = self.env.step(action)
-        if np.any(terminated) or np.any(truncated):
+        if self._any_true(terminated) or self._any_true(truncated):
             obs, _ = self.env.reset()
         return self._build_obs_pack(obs)
 
@@ -264,6 +264,13 @@ class IsaacLabEnvBridge:
         if hasattr(self._env_target, "adapt_action"):
             return self._env_target.adapt_action(action)
         return action
+
+    @staticmethod
+    def _any_true(value: Any) -> bool:
+        array = _as_numpy(value)
+        if array is not None:
+            return bool(np.any(array))
+        return bool(value)
 
     def _find_by_keys(
         self, obs: Any, key_candidates: Iterable[str]

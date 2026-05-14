@@ -111,7 +111,7 @@ def _build_demo_phases(cube_center: np.ndarray) -> list[Phase]:
         ),
         Phase(
             name="lift",
-            steps=55,
+            steps=80,
             left_start=left_grasp,
             left_end=left_lift,
             right_start=right_watch,
@@ -123,7 +123,7 @@ def _build_demo_phases(cube_center: np.ndarray) -> list[Phase]:
         ),
         Phase(
             name="hold",
-            steps=45,
+            steps=90,
             left_start=left_lift,
             left_end=left_lift,
             right_start=right_watch,
@@ -209,10 +209,72 @@ def _cube_attach_position(left_pose: np.ndarray) -> np.ndarray:
     return left_pose[:3] + np.array([0.085, -0.005, -0.028], dtype=np.float32)
 
 
+def _hold_final_pose(
+    env: IsaacLabEnvBridge,
+    simulation_app,
+    *,
+    duration_s: float,
+    loop_hz: float,
+    action: np.ndarray,
+    left_pose: np.ndarray,
+    left_grip: float,
+    assist_cube: bool,
+) -> None:
+    if duration_s <= 0.0:
+        return
+    deadline = time.perf_counter() + duration_s
+    target_dt = 1.0 / max(loop_hz, 1.0)
+    print(f"[*] Holding lifted pose for {duration_s:.1f}s")
+    while simulation_app.is_running() and time.perf_counter() < deadline:
+        loop_start = time.perf_counter()
+        env.step(action, head_rmat=HEAD_RMAT)
+        if assist_cube and left_grip >= 0.8:
+            _set_cube_pose(env, _cube_attach_position(left_pose))
+        elapsed = time.perf_counter() - loop_start
+        if elapsed < target_dt:
+            time.sleep(target_dt - elapsed)
+
+
+def _stay_open_until_closed(
+    env: IsaacLabEnvBridge,
+    simulation_app,
+    *,
+    loop_hz: float,
+    action: np.ndarray,
+    left_pose: np.ndarray,
+    left_grip: float,
+    assist_cube: bool,
+) -> None:
+    target_dt = 1.0 / max(loop_hz, 1.0)
+    print("[*] Demo finished. Keeping final pose until you close the window or press Ctrl+C.")
+    try:
+        while simulation_app.is_running():
+            loop_start = time.perf_counter()
+            env.step(action, head_rmat=HEAD_RMAT)
+            if assist_cube and left_grip >= 0.8:
+                _set_cube_pose(env, _cube_attach_position(left_pose))
+            elapsed = time.perf_counter() - loop_start
+            if elapsed < target_dt:
+                time.sleep(target_dt - elapsed)
+    except KeyboardInterrupt:
+        pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Scripted cube grasp demo for the Isaac Lab teleop scene")
     parser.add_argument("--task", type=str, default=TELEOP_TASK_ID)
     parser.add_argument("--loop_hz", type=float, default=30.0)
+    parser.add_argument(
+        "--post_grasp_hold_s",
+        type=float,
+        default=5.0,
+        help="Extra time to keep the lifted final pose visible before exiting.",
+    )
+    parser.add_argument(
+        "--stay_open",
+        action="store_true",
+        help="After the scripted sequence finishes, keep the window alive until you close it.",
+    )
     parser.add_argument("--record", action="store_true", help="Record the scripted demo to an HDF5 episode")
     parser.add_argument(
         "--output",
@@ -250,6 +312,9 @@ def main() -> int:
 
         target_dt = 1.0 / max(args.loop_hz, 1.0)
         last_phase = None
+        last_action = None
+        last_left_pose = None
+        last_left_grip = 0.0
         for phase_name, left_pose, right_pose, left_qpos, right_qpos, left_grip in _iter_actions(cube_center):
             if not simulation_app.is_running():
                 break
@@ -258,6 +323,9 @@ def main() -> int:
                 last_phase = phase_name
 
             action = assemble_teleop_action(left_pose, right_pose, left_qpos, right_qpos)
+            last_action = action
+            last_left_pose = left_pose.copy()
+            last_left_grip = left_grip
             loop_start = time.perf_counter()
             obs = env.step(action, head_rmat=HEAD_RMAT)
 
@@ -276,6 +344,28 @@ def main() -> int:
             elapsed = time.perf_counter() - loop_start
             if elapsed < target_dt:
                 time.sleep(target_dt - elapsed)
+
+        if last_action is not None and last_left_pose is not None:
+            _hold_final_pose(
+                env,
+                simulation_app,
+                duration_s=args.post_grasp_hold_s,
+                loop_hz=args.loop_hz,
+                action=last_action,
+                left_pose=last_left_pose,
+                left_grip=last_left_grip,
+                assist_cube=args.assist_cube,
+            )
+            if args.stay_open:
+                _stay_open_until_closed(
+                    env,
+                    simulation_app,
+                    loop_hz=args.loop_hz,
+                    action=last_action,
+                    left_pose=last_left_pose,
+                    left_grip=last_left_grip,
+                    assist_cube=args.assist_cube,
+                )
 
         if recorder is not None:
             recorder.save(Path(args.output))

@@ -207,6 +207,8 @@ This demo drives the left hand through a fixed approach-close-lift sequence.
 the scene, kinematics, and pickup flow even before contact-rich grasping is fully tuned.
 The trajectory is generated from the cube's current pose at runtime rather than
 from hard-coded world coordinates, so it adapts if the cube spawn point changes.
+By default it also keeps the lifted final pose visible for a few seconds. Add
+`--stay_open` if you want the scene to remain up until you manually close it.
 
 Do not pass `--headless` for this visual test. `--require_real_env` forces the
 script to fail if the real Isaac Lab `television_lab` scene did not load, instead

@@ -201,6 +201,8 @@ class MigrationContractTests(unittest.TestCase):
         self.assertIn("assemble_teleop_action", source)
         self.assertIn("--assist_cube", source)
         self.assertIn("--allow_fallback", source)
+        self.assertIn("--post_grasp_hold_s", source)
+        self.assertIn("--stay_open", source)
         self.assertIn("Scripted cube grasp demo", source)
         self.assertIn("_current_cube_center", source)
         self.assertIn("_iter_actions(cube_center)", source)

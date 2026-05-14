@@ -207,9 +207,11 @@ active environment from the repository root:
 python scripts/diagnose_isaac_runtime.py
 ```
 
-That error means the real Isaac Lab extension failed before the TeleVision scene
-could register. Repair the active Isaac Sim / Isaac Lab / NVIDIA Warp package
-set first, then rerun the visual command above.
+The launcher applies a small compatibility shim for newer NVIDIA Warp builds
+where `warp.array` exists but the older `warp.types.array` alias is missing.
+If the diagnostic still reports failed Isaac imports after the shim, repair the
+active Isaac Sim / Isaac Lab package set first, then rerun the visual command
+above.
 
 Batch collection:
 

@@ -109,6 +109,9 @@ class MigrationContractTests(unittest.TestCase):
         source = (ROOT_DIR / "tv_isaaclab" / "bootstrap.py").read_text(encoding="utf-8")
         self.assertIn("_configure_camera_mode()", source)
         self.assertIn('os.environ.setdefault("ENABLE_CAMERAS", "1")', source)
+        self.assertIn("patch_warp_legacy_array_alias()", source)
+        self.assertIn('setattr(warp_types, "array", wp.array)', source)
+        self.assertIn("_register_real_tasks_after_app()", source)
 
     def test_headless_smoke_script_defaults_to_headless_app_launcher(self):
         source = (ROOT_DIR / "scripts" / "headless_full_run.py").read_text(encoding="utf-8")
@@ -135,6 +138,8 @@ class MigrationContractTests(unittest.TestCase):
     def test_runtime_diagnostic_reports_warp_state(self):
         source = (ROOT_DIR / "scripts" / "diagnose_isaac_runtime.py").read_text(encoding="utf-8")
         self.assertIn("warp.types", source)
+        self.assertIn("patch_warp_legacy_array_alias", source)
+        self.assertIn("ROOT_DIR", source)
         self.assertIn("isaaclab_tasks", source)
         self.assertIn("television_lab_real", source)
 

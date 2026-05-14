@@ -6,6 +6,12 @@ import importlib
 import importlib.metadata
 import sys
 import traceback
+from pathlib import Path
+
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 
 def _dist_version(name: str) -> str:
@@ -60,6 +66,15 @@ def main() -> int:
                 "  PROBLEM: Isaac Sim is importing a Warp build without warp.types.array. "
                 "This usually means the active environment has an incompatible or shadowing Warp package."
             )
+            try:
+                from tv_isaaclab.bootstrap import patch_warp_legacy_array_alias
+
+                patched = patch_warp_legacy_array_alias()
+                print(f"  compatibility shim applied: {patched}")
+                print(f"  after shim hasattr(warp.types, 'array'): {hasattr(getattr(wp, 'types', None), 'array')}")
+            except Exception:
+                print("  compatibility shim failed")
+                traceback.print_exc(limit=3)
 
     _try_import("isaacsim.core.utils.warp.rotations")
     _try_import("isaaclab.app")

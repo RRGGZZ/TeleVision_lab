@@ -135,6 +135,10 @@ class MigrationContractTests(unittest.TestCase):
         self.assertIn('init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 1.2))', source)
         self.assertIn('init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 1.25))', source)
         self.assertIn('self._head_anchor = torch.tensor([-0.6, 0.0, 1.6]', source)
+        self.assertIn("_REFERENCE_HAND_QUAT_WXYZ = (0.5, 0.5, -0.5, 0.5)", source)
+        self.assertIn('side_offset = 0.5 if side == "left" else -0.5', source)
+        self.assertIn("pose[:, 0] = -0.3", source)
+        self.assertIn("pose[:, 2] = 1.1", source)
         self.assertIn("viewer: ViewerCfg = ViewerCfg(", source)
 
     def test_package_prefers_real_task_registration_before_fallback(self):
@@ -172,6 +176,8 @@ class MigrationContractTests(unittest.TestCase):
         self.assertIn("--mock_teleop", source)
         self.assertIn("--require_real_env", source)
         self.assertIn("Real Isaac Lab backend", source)
+        self.assertIn("_REFERENCE_LEFT_POSE_XYZW", source)
+        self.assertIn("_REFERENCE_RIGHT_POSE_XYZW", source)
         self.assertNotIn("\nRetargetingConfig = _load_retargeting_config()", source)
 
     def test_runtime_diagnostic_reports_warp_state(self):

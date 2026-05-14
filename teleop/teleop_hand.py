@@ -49,6 +49,15 @@ from tv_isaaclab import (  # noqa: E402
 )
 from tv_isaaclab.contracts import TELEOP_TASK_ID, expand_inspire_driver_qpos
 
+_REFERENCE_LEFT_POSE_XYZW = np.array(
+    [-0.3, 0.5, 1.1, 0.5, -0.5, 0.5, 0.5],
+    dtype=np.float32,
+)
+_REFERENCE_RIGHT_POSE_XYZW = np.array(
+    [-0.3, -0.5, 1.1, 0.5, -0.5, 0.5, 0.5],
+    dtype=np.float32,
+)
+
 
 def _resolve_local_path(path_str: str) -> Path:
     path = Path(path_str).expanduser()
@@ -130,7 +139,7 @@ class VuerTeleop:
 
 
 class MockTeleop:
-    """Deterministic teleop source for CI/server smoke tests without XR hardware."""
+    """Deterministic teleop source aligned with the original TeleVision wrist frame."""
 
     def __init__(self, height=512, width=512):
         self.img_height = int(height)
@@ -143,14 +152,12 @@ class MockTeleop:
         self._step_idx += 1
 
         head_rmat = np.eye(3, dtype=np.float32)
-        left_pose = np.array(
-            [-0.6 + 0.03 * np.sin(t), 0.10, 1.6 + 0.02 * np.cos(t), 0.0, 0.0, 0.0, 1.0],
-            dtype=np.float32,
-        )
-        right_pose = np.array(
-            [-0.6 + 0.03 * np.sin(t), -0.10, 1.6 + 0.02 * np.cos(t), 0.0, 0.0, 0.0, 1.0],
-            dtype=np.float32,
-        )
+        left_pose = _REFERENCE_LEFT_POSE_XYZW.copy()
+        right_pose = _REFERENCE_RIGHT_POSE_XYZW.copy()
+        left_pose[0] += 0.03 * np.sin(t)
+        right_pose[0] += 0.03 * np.sin(t)
+        left_pose[2] += 0.02 * np.cos(t)
+        right_pose[2] += 0.02 * np.cos(t)
         base = np.linspace(0.0, 1.0, 12, dtype=np.float32)
         left_qpos = 0.25 * np.sin(t + base).astype(np.float32)
         right_qpos = 0.25 * np.cos(t + base).astype(np.float32)
